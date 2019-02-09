@@ -21,13 +21,12 @@
  * for the random number generator on every run, either by passing something like the time of day
  * to srandom_r or by taking a seed as an optional command-line parameter.
  */
+
 int parse_opts(int argc, char **argv);
 std::vector<std::vector<int>> init_graph(int mode);
-bool validate_graph(int p_cnt, std::vector<std::vector<int>> graph);
 
 int session_cnt = 20;
 std::string conf_path;
-
 int main(int argc, char **argv) {
     std::vector<std::vector<int>> graph = init_graph(parse_opts(argc, argv));
     std::cout << "press any key to continue." << std::endl;
@@ -50,11 +49,12 @@ int parse_opts(int argc, char **argv) {
             {"filename", required_argument, nullptr, 'f'},
             {nullptr, no_argument, nullptr, 0},
     };
-    while ((opt = getopt_long(argc, argv, "s:f:-", opts, nullptr)) != EOF) {
+    while ((opt = getopt_long(argc, argv, ":s:f:-", opts, nullptr)) != EOF) {
         switch (opt) {
             case 's': session_cnt = static_cast<int>(std::strtol(optarg, nullptr, 10)); break;
             case 'f': conf_path = optarg; break;
             case ':': std::cerr << "invalid option: needs a value" << opt << std::endl; break;
+            case '?': std::cout << "usage: philosophers -s <session_count> -f <filename> [-]" << std::endl; exit(-1);
             default: break;
         }
     }
