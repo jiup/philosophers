@@ -22,28 +22,71 @@
  * to srandom_r or by taking a seed as an optional command-line parameter.
  */
 
-int parse_opts(int argc, char **argv);
-std::vector<std::vector<int>> init_graph(int mode);
+enum class DiningState { THINKING = 1, HUNGRY, EATING };
+enum class DrinkingState { TRANQUIL = 1, THIRSTY, DRINKING };
 
-enum dining_state { THINKING = 1, HUNGRY, EATING };
-enum drinking_state { TRANQUIL = 1, THIRSTY, DRINKING };
+class Resource {
+public:
+    class Fork {
+    public:
+        bool reqf = false;
+        bool dirty = true;
+        bool hold = false;
+    } fork;
+
+    class Bottle {
+    public:
+        bool bot = false;
+        bool reqb = false;
+        bool need = false;
+    } bottle;
+
+    friend std::ostream& operator<<(std::ostream &out, Resource res) {
+        if (res.fork.hold == res.fork.reqf) return out << "error";
+        return out << (res.fork.dirty ? "dirty" : "clean") << " " << (res.fork.hold ? "fork" : "reqf");
+    }
+};
+
+int parse_opts(int argc, char **argv);
+std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode);
 
 int p_cnt;
 int session_cnt = 20;
 std::string conf_path;
+std::vector<DiningState> dining_states;
+std::vector<DrinkingState> drinking_states;
+std::vector<std::vector<Resource>> resources;
+
 int main(int argc, char **argv) {
-    std::vector<std::vector<int>> graph = init_graph(parse_opts(argc, argv));
+    std::vector<std::vector<std::pair<int, Resource>>> graph = init_graph(parse_opts(argc, argv));
     std::cout << "press any key to continue." << std::endl;
     getchar();
 
+    // todo
     for (int i = 1; i < graph.size(); i++) {
         std::cout << i << ": ";
         for (const auto &adjacent : graph[i]) {
-            std::cout << adjacent << " ";
+            std::cout << adjacent.first << " (" << adjacent.second << ") ";
         }
         std::cout << std::endl;
     }
     printf("%d, %d", p_cnt, session_cnt);
+    dining_states.resize(static_cast<unsigned long>(p_cnt), DiningState::THINKING);
+    drinking_states.resize(static_cast<unsigned long>(p_cnt), DrinkingState::TRANQUIL);
+    resources.resize(static_cast<unsigned long>(p_cnt) + 1);
+
+//    r1a.fork.hold = r2a.fork.hold = r3a.fork.hold = r4a.fork.hold = r5a.fork.hold = true;
+//    r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
+//    resources[1].push_back(r1a);
+//    resources[2].push_back(r1b);
+//    resources[2].push_back(r2a);
+//    resources[3].push_back(r2b);
+//    resources[3].push_back(r3a);
+//    resources[4].push_back(r3b);
+//    resources[4].push_back(r4a);
+//    resources[5].push_back(r4b);
+//    resources[5].push_back(r5b);
+//    resources[1].push_back(r5a);
     return 0;
 }
 
@@ -76,21 +119,24 @@ int parse_opts(int argc, char **argv) {
     return 0;
 }
 
-std::vector<std::vector<int>> init_graph(int mode) {
+std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
     if (mode == 1) {
         std::ifstream file(conf_path);
         if (file.good()) {
             int p1, p2, n = 0;
             file >> p_cnt;
-            std::vector<std::vector<int>> graph(static_cast<unsigned long>(p_cnt + 1));
+            std::vector<std::vector<std::pair<int, Resource>>> graph(static_cast<unsigned long>(p_cnt + 1));
             for (int i = 0; i < p_cnt; i++) {
                 file >> p1 >> p2;
                 if (p1 < 1 || p2 < 1 || p1 > p_cnt || p2 > p_cnt) {
                     std::cerr << "error: invalid graph" << std::endl;
                     exit(-1);
                 }
-                graph[p1].push_back(p2);
-                graph[p2].push_back(p1);
+                Resource pos = Resource(), neg = Resource();
+                pos.fork.hold = true;
+                neg.fork.reqf = true;
+                graph[p1].push_back(std::make_pair(p2, p1 < p2 ? pos : neg));
+                graph[p2].push_back(std::make_pair(p1, p1 < p2 ? neg : pos));
                 n++;
             }
             if (n < p_cnt - 1 || n > (p_cnt * (p_cnt - 1) / 2)) {
@@ -108,12 +154,15 @@ std::vector<std::vector<int>> init_graph(int mode) {
         std::cout << "number of philosophers: ";
         std::cin >> p_cnt;
         std::cout << "edge pairs (0 to exit):" << std::endl;
-        std::vector<std::vector<int>> graph(static_cast<unsigned long>(p_cnt + 1));
+        std::vector<std::vector<std::pair<int, Resource>>> graph(static_cast<unsigned long>(p_cnt + 1));
         while (true) {
             std::cin >> p1 >> p2;
             if (p1 < 1 || p2 < 1 || p1 > p_cnt || p2 > p_cnt) break;
-            graph[p1].push_back(p2);
-            graph[p2].push_back(p1);
+            Resource pos = Resource(), neg = Resource();
+            pos.fork.hold = true;
+            neg.fork.reqf = true;
+            graph[p1].push_back(std::make_pair(p2, p1 < p2 ? pos : neg));
+            graph[p2].push_back(std::make_pair(p1, p1 < p2 ? neg : pos));
             n++;
         }
         if (n < p_cnt - 1 || n > (p_cnt * (p_cnt - 1) / 2)) {
@@ -125,5 +174,16 @@ std::vector<std::vector<int>> init_graph(int mode) {
     }
 
     p_cnt = 5;
-    return {{}, {2, 5}, {3, 1}, {4, 2}, {5, 3}, {1, 4}};
+    Resource r1a = Resource(), r2a = Resource(), r3a = Resource(), r4a = Resource(), r5a = Resource();
+    Resource r1b= Resource(), r2b = Resource(), r3b = Resource(), r4b = Resource(), r5b = Resource();
+    r1a.fork.hold = r2a.fork.hold = r3a.fork.hold = r4a.fork.hold = r5a.fork.hold = true;
+    r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
+
+    // todo: convert to acyclic graph
+    return {{},
+            {std::make_pair(2, r1a), std::make_pair(5, r5a)},
+            {std::make_pair(3, r2a), std::make_pair(1, r1b)},
+            {std::make_pair(4, r3a), std::make_pair(2, r2b)},
+            {std::make_pair(5, r4a), std::make_pair(3, r3b)},
+            {std::make_pair(1, r5b), std::make_pair(4, r4b)}};
 }
