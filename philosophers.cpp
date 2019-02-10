@@ -1,7 +1,11 @@
 #include <iostream>
+#include <stdlib.h>
 #include <getopt.h>
 #include <fstream>
 #include <vector>
+#include <pthread.h>
+#include <mutex>
+#include <unistd.h>
 
 /*
  * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep function with a randomly chosen argument.
@@ -49,20 +53,26 @@ public:
 
 int parse_opts(int argc, char **argv);
 std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode);
+void *philosopher(void *pid);
 
 int p_cnt;
 int session_cnt = 20;
 std::string conf_path;
+std::atomic_bool start;
 std::vector<DiningState> dining_states;
 std::vector<DrinkingState> drinking_states;
+std::vector<std::vector<std::pair<int, Resource>>> graph;
 std::vector<std::vector<Resource>> resources;
+std::vector<unsigned int> rand_seeds;
+std::mutex g_lock;
 
 int main(int argc, char **argv) {
-    std::vector<std::vector<std::pair<int, Resource>>> graph = init_graph(parse_opts(argc, argv));
+    graph = init_graph(parse_opts(argc, argv));
     std::cout << "press any key to continue." << std::endl;
     getchar();
 
-    // todo
+    // TODO
+    std::cout<<"graph initialization:"<<std::endl;
     for (int i = 1; i < graph.size(); i++) {
         std::cout << i << ": ";
         for (const auto &adjacent : graph[i]) {
@@ -70,11 +80,11 @@ int main(int argc, char **argv) {
         }
         std::cout << std::endl;
     }
-    printf("%d, %d", p_cnt, session_cnt);
+    printf("config: %d philosophers will eat %d times.\n\n", p_cnt, session_cnt);
     dining_states.resize(static_cast<unsigned long>(p_cnt), DiningState::THINKING);
     drinking_states.resize(static_cast<unsigned long>(p_cnt), DrinkingState::TRANQUIL);
-    resources.resize(static_cast<unsigned long>(p_cnt) + 1);
 
+//    resources.resize(static_cast<unsigned long>(p_cnt) + 1);
 //    r1a.fork.hold = r2a.fork.hold = r3a.fork.hold = r4a.fork.hold = r5a.fork.hold = true;
 //    r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
 //    resources[1].push_back(r1a);
@@ -87,6 +97,17 @@ int main(int argc, char **argv) {
 //    resources[5].push_back(r4b);
 //    resources[5].push_back(r5b);
 //    resources[1].push_back(r5a);
+
+    pthread_t threads[p_cnt];
+    rand_seeds.resize(static_cast<unsigned long>(p_cnt));
+    for (long i = 0; i < p_cnt; i++) {
+        pthread_create(&threads[i], nullptr, philosopher, (void *) i);
+        rand_seeds[i] = static_cast<unsigned int>(i * 2);
+    }
+    start = true;
+    for (int i = 0; i < p_cnt; i++) {
+        pthread_join(threads[i], nullptr);
+    }
     return 0;
 }
 
@@ -186,4 +207,26 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
             {std::make_pair(4, r3a), std::make_pair(2, r2b)},
             {std::make_pair(5, r4a), std::make_pair(3, r3b)},
             {std::make_pair(1, r5b), std::make_pair(4, r4b)}};
+}
+
+void *philosopher(void *pid) {
+    while (!start.load());
+    long id = (long) pid;
+    auto micro_sec = rand_r(&rand_seeds[id]) % 1000;
+    usleep(static_cast<useconds_t>(micro_sec)); // 0 to 1000 microseconds
+
+    std::lock_guard <std::mutex> lock(g_lock);
+    std::cout << "philosopher " << id << " is ";
+    switch (dining_states[id]) {
+        case DiningState::THINKING:
+            std::cout << "thinking" << std::endl;
+            break;
+        case DiningState::HUNGRY:
+            std::cout << "hungry" << std::endl;
+            break;
+        case DiningState::EATING:
+            std::cout << "eating" << std::endl;
+            break;
+    }
+    return nullptr;
 }
