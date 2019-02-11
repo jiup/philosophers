@@ -8,10 +8,12 @@
 #include <unistd.h>
 
 /*
- * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep function with a randomly chosen argument.
+ * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep
+ * function with a randomly chosen argument.
  * I suggest values in the range of 1–1,000 microseconds (1,000–1,000,000 nanoseconds).
  * If you make the sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
- * For simplicity and for ease of grading, each drinking session should employ all adjacent bottles (not the arbitrary subset allowed by Chandy and Misra).
+ * For simplicity and for ease of grading, each drinking session should employ all adjacent bottles (not the arbitrary
+ * subset allowed by Chandy and Misra).
  */
 
 /*
@@ -28,7 +30,6 @@
 
 enum class DiningState { THINKING = 1, HUNGRY, EATING };
 enum class DrinkingState { TRANQUIL = 1, THIRSTY, DRINKING };
-
 class Resource {
 public:
     class Fork {
@@ -54,6 +55,18 @@ public:
 int parse_opts(int argc, char **argv);
 std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode);
 void *philosopher(void *pid);
+void thinking(long id);
+void eating(long id);
+void report(long id);
+
+bool send_reqf(long from, long to, Resource resource) ;
+
+bool send_fork(long from, long to, Resource resource) ;
+
+constexpr long THINKING_MIN = 1, THINKING_MAX = 1000;
+constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000;
+constexpr long THINKING_RANGE = THINKING_MAX - THINKING_MIN;
+constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
 
 int p_cnt;
 int session_cnt = 20;
@@ -102,7 +115,7 @@ int main(int argc, char **argv) {
     rand_seeds.resize(static_cast<unsigned long>(p_cnt));
     for (long i = 0; i < p_cnt; i++) {
         pthread_create(&threads[i], nullptr, philosopher, (void *) i);
-        rand_seeds[i] = static_cast<unsigned int>(i * 2);
+        rand_seeds[i] = static_cast<unsigned int>(i * 7);
     }
     start = true;
     for (int i = 0; i < p_cnt; i++) {
@@ -212,11 +225,110 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
 void *philosopher(void *pid) {
     while (!start.load());
     long id = (long) pid;
-    auto micro_sec = rand_r(&rand_seeds[id]) % 1000;
-    usleep(static_cast<useconds_t>(micro_sec)); // 0 to 1000 microseconds
+    for (int session = 0; session < session_cnt;) {
+        report(id);
+        std::vector<std::pair<int, Resource>> refs = graph[id];
+        switch (dining_states[id]) {
+            case DiningState::THINKING:
+                thinking(id);
+                dining_states[id] = DiningState::HUNGRY;
+                break;
+            case DiningState::HUNGRY:
+                // R1: req_fork
+                for (std::pair<int, Resource> ref_pair : refs) {
+                    Resource resource = ref_pair.second;
+                    if (resource.fork.reqf && !resource.fork.hold) {
+                        if (!send_reqf(id, ref_pair.first, resource)) {
+                            usleep(1);
+                            continue;
+                        }
+                    }
+                }
+                // double check flags
+                for (std::pair<int, Resource> ref_pair : refs) {
+                    Resource resource = ref_pair.second;
+                    if (!resource.fork.hold || resource.fork.reqf) {
+                        usleep(1);
+                        continue;
+                    }
+                }
+                dining_states[id] = DiningState::EATING;
+                break;
+            case DiningState::EATING:
+                eating(id);
+                // R2: send_fork
+                for (std::pair<int, Resource> ref_pair : refs) {
+                    Resource resource = ref_pair.second;
+                    if (!resource.fork.reqf && resource.fork.dirty) {
+                        if (!send_fork(id, ref_pair.first, resource)) {
+                            usleep(1);
+                            continue;
+                        }
+                    }
+                }
+                dining_states[id] = DiningState::THINKING;
+                session++;
+                break;
+        }
+    }
+    return nullptr;
+}
 
-    std::lock_guard <std::mutex> lock(g_lock);
-    std::cout << "philosopher " << id << " is ";
+bool send_reqf(long from, long to, Resource resource) {
+    auto it = std::find_if (graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+        return from == ref_pair.first;
+    });
+    if (it == graph[to].end()) {
+        std::cerr << "reverse edge not found" << std::endl;
+        return false;
+    }
+    Resource resource_reverse = (*it).second;
+    // >>> synchronized start
+    resource.fork.reqf = false;
+    resource_reverse.fork.reqf = true;
+    // <<< synchronized end
+    return true;
+}
+
+bool send_fork(long from, long to, Resource resource) {
+    auto it = std::find_if (graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+        return from == ref_pair.first;
+    });
+    if (it == graph[to].end()) {
+        std::cerr << "reverse edge not found" << std::endl;
+        return false;
+    }
+    Resource resource_reverse = (*it).second;
+    // >>> synchronized start
+    resource.fork.dirty = false;
+    resource.fork.hold = false;
+    resource_reverse.fork.dirty = false;
+    resource_reverse.fork.hold = true;
+    // <<< synchronized end
+    return true;
+}
+
+/*
+bool recv_reqf(long id, long from, Resource resource) {
+    return false;
+}
+
+bool recv_fork(long id, long from, Resource resource) {
+    return false;
+}
+*/
+
+void eating(long id) {
+    thinking(id);
+}
+
+void thinking(long id) {
+    usleep(static_cast<useconds_t>(THINKING_MIN + rand_r(&rand_seeds[id]) % THINKING_RANGE));
+}
+
+void report(long id) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    std::cout << "philosopher " << id + 1 << " is ";
     switch (dining_states[id]) {
         case DiningState::THINKING:
             std::cout << "thinking" << std::endl;
@@ -228,5 +340,4 @@ void *philosopher(void *pid) {
             std::cout << "eating" << std::endl;
             break;
     }
-    return nullptr;
 }
