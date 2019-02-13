@@ -7,22 +7,6 @@
 #include <vector>
 #include <mutex>
 
-/*
- * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep
- * function with a randomly chosen argument.
- * I suggest values in the range of 1–1,000 microseconds (1,000–1,000,000 nanoseconds).
- * If you make the sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
- * For simplicity and for ease of grading, each drinking session should employ all adjacent bottles (not the arbitrary
- * subset allowed by Chandy and Misra).
- */
-
-/*
- * To generate pseudo-random numbers, I recommend the random_r library routine.
- * To better test your program, you may want to arrange for it to use a different “seed”
- * for the random number generator on every run, either by passing something like the time of day
- * to srandom_r or by taking a seed as an optional command-line parameter.
- */
-
 enum class DiningState {
     THINKING = 1, HUNGRY, EATING
 };
@@ -48,12 +32,12 @@ public:
         pthread_cond_t condition{};
         volatile bool hold{};
         volatile bool reqb{};
-        volatile bool need{};
+        // volatile bool need{}; // ignore for simplicity
     } bottle;
 
     friend std::ostream &operator<<(std::ostream &out, Resource res) {
         if (res.fork.hold == res.fork.reqf) return out << "error";
-        return out << (res.fork.dirty ? "dirty" : "clean") << " " << (res.fork.hold ? "fork" : "reqf");
+        return out << (res.bottle.hold ? "bottle" : "reqb  ") << " " << (res.fork.hold ? "fork" : "reqf");
     }
 };
 
@@ -67,17 +51,29 @@ void thinking(long id);
 
 void eating(long id);
 
+void tranquil(long id);
+
+void drinking(long id);
+
 void report(long id);
 
 void send_reqf(long from, long to);
 
 void send_fork(long from, long to);
 
+void send_reqb(long from, long to);
+
+void send_bottle(long from, long to);
+
+/*
+ * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep
+ * function with a randomly chosen argument. I suggest values in the range of 1–1,000 microseconds. If you make the
+ * sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
+ */
 constexpr long THINKING_MIN = 1, THINKING_MAX = 1000;
 constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000;
 constexpr long THINKING_RANGE = THINKING_MAX - THINKING_MIN;
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
-const long LOCK_INIT_SIZE = 1000;
 
 int p_cnt;
 int session_cnt = 20;
@@ -217,6 +213,8 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
     Resource r1b = Resource(), r2b = Resource(), r3b = Resource(), r4b = Resource(), r5b = Resource();
     r1a.fork.hold = r2a.fork.hold = r3a.fork.hold = r4a.fork.hold = r5a.fork.hold = true;
     r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
+    r1a.bottle.hold = r2a.bottle.hold = r3a.bottle.hold = r4a.bottle.hold = r5a.bottle.hold = true;
+    r1b.bottle.reqb = r2b.bottle.reqb = r3b.bottle.reqb = r4b.bottle.reqb = r5b.bottle.reqb = true;
 
     // todo: convert to acyclic graph
     return {{},
@@ -233,6 +231,54 @@ void *philosopher(void *pid) {
     for (int session = 0; session < session_cnt;) {
         report(id);
         std::vector<std::pair<int, Resource>> refs = graph[id];
+
+        switch (drinking_states[id]) {
+            case DrinkingState::TRANQUIL:
+                for (std::pair<int, Resource> ref_pair : refs) {
+                    Resource resource = ref_pair.second;
+                    pthread_mutex_lock(&resource.bottle.lock);
+                    if (resource.bottle.hold && resource.bottle.reqb && !resource.fork.hold) {
+                        send_bottle(id, ref_pair.first);
+                        resource.bottle.hold = false;
+                    }
+                    pthread_mutex_unlock(&resource.bottle.lock);
+                }
+                tranquil(id);
+                drinking_states[id] = DrinkingState::THIRSTY;
+                break;
+
+            case DrinkingState::THIRSTY:
+                // For simplicity and for ease of grading, each drinking session should employ
+                // all adjacent bottles (not the arbitrary subset allowed by Chandy and Misra).
+                for (std::pair<int, Resource> ref_pair : refs) {
+                    Resource resource = ref_pair.second;
+                    pthread_mutex_lock(&resource.bottle.lock);
+                    if (resource.bottle.hold && resource.bottle.reqb && !resource.fork.hold) {
+                        send_bottle(id, ref_pair.first);
+                        resource.bottle.hold = false;
+                    }
+                    if (!resource.bottle.hold) {
+                        while (!resource.bottle.reqb) {
+                            // waiting for bottle-ticket
+                            pthread_cond_wait(&resource.bottle.condition, &resource.bottle.lock);
+                        }
+                        // single request sent
+                        send_reqb(id, ref_pair.first);
+                        resource.bottle.reqb = false;
+                    }
+                    pthread_mutex_unlock(&resource.bottle.lock);
+                }
+                // all bottles received
+                drinking_states[id] = DrinkingState::DRINKING;
+                break;
+
+            case DrinkingState::DRINKING:
+                drinking(id);
+                drinking_states[id] = DrinkingState::TRANQUIL;
+                session++;
+                break;
+        }
+
         switch (dining_states[id]) {
             case DiningState::THINKING:
                 for (std::pair<int, Resource> ref_pair : refs) {
@@ -245,8 +291,12 @@ void *philosopher(void *pid) {
                     }
                     pthread_mutex_unlock(&resource.fork.lock);
                 }
-                thinking(id);
-                dining_states[id] = DiningState::HUNGRY;
+                // thinking(id); // todo: deprecated
+
+                // (D1) A thinking, thirsty philosopher becomes hungry
+                if (drinking_states[id] == DrinkingState::THIRSTY) {
+                    dining_states[id] = DiningState::HUNGRY;
+                }
                 break;
 
             case DiningState::HUNGRY:
@@ -275,15 +325,17 @@ void *philosopher(void *pid) {
                 break;
 
             case DiningState::EATING:
-                eating(id);
                 for (std::pair<int, Resource> ref_pair : refs) {
                     Resource resource = ref_pair.second;
                     pthread_mutex_lock(&resource.fork.lock);
                     resource.fork.dirty = true; // already ate
                     pthread_mutex_unlock(&resource.fork.lock);
                 }
-                session++;
-                dining_states[id] = DiningState::THINKING;
+                // eating(id); // todo: deprecated
+                // (D2) An eating, nonthirsty philosopher starts thinking
+                if (drinking_states[id] != DrinkingState::THIRSTY) {
+                    dining_states[id] = DiningState::THINKING;
+                }
                 break;
         }
     }
@@ -324,26 +376,78 @@ void send_fork(long from, long to) {
     pthread_mutex_unlock(&resource_reverse.fork.lock);
 }
 
-void eating(long id) {
-    thinking(id);
+// (R1) Requesting a Bottle:
+void send_reqb(long from, long to) {
+    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+        return from == ref_pair.first;
+    });
+    if (it == graph[to].end()) {
+        std::cerr << "warn: reverse edge for <" << from << "> not found" << std::endl;
+        return;
+    }
+    // (R3) Receive Request for a Bottle:
+    Resource resource_reverse = (*it).second;
+    pthread_mutex_lock(&resource_reverse.fork.lock);
+    resource_reverse.bottle.reqb = true;
+    pthread_cond_signal(&resource_reverse.fork.condition);
+    pthread_mutex_unlock(&resource_reverse.fork.lock);
+}
+
+// (R2) Send a Bottle:
+void send_bottle(long from, long to) {
+    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+        return from == ref_pair.first;
+    });
+    if (it == graph[to].end()) {
+        std::cerr << "warn: reverse edge for <" << from << "> not found" << std::endl;
+        return;
+    }
+    // (R4) Receive a Bottle:
+    Resource resource_reverse = (*it).second;
+    pthread_mutex_lock(&resource_reverse.bottle.lock);
+    resource_reverse.bottle.hold = true;
+    pthread_mutex_unlock(&resource_reverse.bottle.lock);
 }
 
 void thinking(long id) {
     usleep(static_cast<useconds_t>(THINKING_MIN + rand_r(&rand_seeds[id]) % THINKING_RANGE));
 }
 
+void eating(long id) {
+    thinking(id);
+}
+
+void tranquil(long id) {
+    thinking(id);
+}
+
+void drinking(long id) {
+    thinking(id);
+}
+
 void report(long id) {
     std::lock_guard<std::mutex> lock(g_lock);
     std::cout << "philosopher " << id + 1 << " is ";
+    switch (drinking_states[id]) {
+        case DrinkingState::TRANQUIL:
+            std::cout << "tranquil (";
+            break;
+        case DrinkingState::THIRSTY:
+            std::cout << "thirsty (";
+            break;
+        case DrinkingState::DRINKING:
+            std::cout << "drinking (";
+            break;
+    }
     switch (dining_states[id]) {
         case DiningState::THINKING:
-            std::cout << "thinking" << std::endl;
+            std::cout << "thinking)" << std::endl;
             break;
         case DiningState::HUNGRY:
-            std::cout << "hungry" << std::endl;
+            std::cout << "hungry)" << std::endl;
             break;
         case DiningState::EATING:
-            std::cout << "eating" << std::endl;
+            std::cout << "eating)" << std::endl;
             break;
     }
 }
