@@ -7,6 +7,12 @@
 #include <vector>
 #include <mutex>
 
+/**
+ * Drinking Philosophers Problem - Chandy and Misra's solution
+ *
+ * @cite    https://www.cs.utexas.edu/users/misra/scannedPdf.dir/DrinkingPhil.pdf
+ * @author  Jiupeng Zhang (jzh149@ur.rochester.edu)
+ */
 enum class DiningState {
     THINKING = 1, HUNGRY, EATING
 };
@@ -47,10 +53,6 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode);
 
 void *philosopher(void *pid);
 
-void thinking(long id);
-
-void eating(long id);
-
 void tranquil(long id);
 
 void drinking(long id);
@@ -70,10 +72,10 @@ void send_bottle(long from, long to);
  * function with a randomly chosen argument. I suggest values in the range of 1–1,000 microseconds. If you make the
  * sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
  */
-constexpr long THINKING_MIN = 1, THINKING_MAX = 1000;
-constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000;
-constexpr long THINKING_RANGE = THINKING_MAX - THINKING_MIN;
+constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000; // in ms
+constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; // in ms
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
+constexpr long DRINKING_RANGE = DRINKING_MAX - DRINKING_MIN;
 
 int p_cnt;
 int session_cnt = 20;
@@ -409,20 +411,12 @@ void send_bottle(long from, long to) {
     pthread_mutex_unlock(&resource_reverse.bottle.lock);
 }
 
-void thinking(long id) {
-    usleep(static_cast<useconds_t>(THINKING_MIN + rand_r(&rand_seeds[id]) % THINKING_RANGE));
-}
-
-void eating(long id) {
-    thinking(id);
-}
-
 void tranquil(long id) {
-    thinking(id);
+    usleep(static_cast<useconds_t>(TRANQUIL_MIN + rand_r(&rand_seeds[id]) % TRANQUIL_RANGE));
 }
 
 void drinking(long id) {
-    thinking(id);
+    usleep(static_cast<useconds_t>(DRINKING_MIN + rand_r(&rand_seeds[id]) % DRINKING_RANGE));
 }
 
 void report(long id) {
