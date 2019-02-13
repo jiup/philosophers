@@ -59,6 +59,10 @@ void drinking(long id);
 
 void report(long id);
 
+void report_dining(long id);
+
+void report_drinking(long id);
+
 void send_reqf(long from, long to);
 
 void send_fork(long from, long to);
@@ -100,7 +104,7 @@ int main(int argc, char **argv) {
         }
         std::cout << std::endl;
     }
-    printf("config: %d philosophers will eat %d times.\n\n", p_cnt, session_cnt);
+    printf("config: %d philosophers will drink %d times.\n\n", p_cnt, session_cnt);
     dining_states.resize(static_cast<unsigned long>(p_cnt), DiningState::THINKING);
     drinking_states.resize(static_cast<unsigned long>(p_cnt), DrinkingState::TRANQUIL);
 
@@ -231,7 +235,7 @@ void *philosopher(void *pid) {
     while (!start.load());
     long id = (long) pid;
     for (int session = 0; session < session_cnt;) {
-        report(id);
+         report(id);
         std::vector<std::pair<int, Resource>> refs = graph[id];
 
         switch (drinking_states[id]) {
@@ -280,6 +284,7 @@ void *philosopher(void *pid) {
                 session++;
                 break;
         }
+        report_drinking(id);
 
         switch (dining_states[id]) {
             case DiningState::THINKING:
@@ -340,6 +345,7 @@ void *philosopher(void *pid) {
                 }
                 break;
         }
+        report_dining(id);
     }
     return nullptr;
 }
@@ -419,6 +425,38 @@ void drinking(long id) {
     usleep(static_cast<useconds_t>(DRINKING_MIN + rand_r(&rand_seeds[id]) % DRINKING_RANGE));
 }
 
+void report_drinking(long id) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    std::cout << "philosopher " << id + 1 << " ";
+    switch (drinking_states[id]) {
+        case DrinkingState::TRANQUIL:
+            std::cout << "tranquil" << std::endl;
+            break;
+        case DrinkingState::THIRSTY:
+            std::cout << "thirsty" << std::endl;
+            break;
+        case DrinkingState::DRINKING:
+            std::cout << "drinking" << std::endl;
+            break;
+    }
+}
+
+void report_dining(long id) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    std::cout << "philosopher " << id + 1 << " ";
+    switch (dining_states[id]) {
+        case DiningState::THINKING:
+            std::cout << "thinking" << std::endl;
+            break;
+        case DiningState::HUNGRY:
+            std::cout << "hungry" << std::endl;
+            break;
+        case DiningState::EATING:
+            std::cout << "eating" << std::endl;
+            break;
+    }
+}
+
 void report(long id) {
     std::lock_guard<std::mutex> lock(g_lock);
     std::cout << "philosopher " << id + 1 << " is ";
@@ -427,7 +465,7 @@ void report(long id) {
             std::cout << "tranquil (";
             break;
         case DrinkingState::THIRSTY:
-            std::cout << "thirsty (";
+            std::cout << "thirsty  (";
             break;
         case DrinkingState::DRINKING:
             std::cout << "drinking (";
