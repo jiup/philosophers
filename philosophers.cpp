@@ -6,7 +6,6 @@
 #include <fstream>
 #include <vector>
 #include <mutex>
-//#include <condition_variable>
 
 /*
  * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep
@@ -15,11 +14,6 @@
  * If you make the sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
  * For simplicity and for ease of grading, each drinking session should employ all adjacent bottles (not the arbitrary
  * subset allowed by Chandy and Misra).
- */
-
-/*
- * To avoid interleaving of output messages, you’ll need to use a lock to protect your access to stdout.
- * During testing, you may find it helpful to redirect stdout to a file.
  */
 
 /*
@@ -114,9 +108,10 @@ int main(int argc, char **argv) {
 
     pthread_t threads[p_cnt];
     rand_seeds.resize(static_cast<unsigned long>(p_cnt));
+    srand(static_cast<unsigned int>(time(nullptr)));
     for (long i = 0; i < p_cnt; i++) {
         pthread_create(&threads[i], nullptr, philosopher, (void *) i);
-        rand_seeds[i] = static_cast<unsigned int>(i * 7);
+        rand_seeds[i] = static_cast<unsigned int>(rand());
     }
     start = true;
     for (int i = 0; i < p_cnt; i++) {
@@ -222,10 +217,6 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
     Resource r1b = Resource(), r2b = Resource(), r3b = Resource(), r4b = Resource(), r5b = Resource();
     r1a.fork.hold = r2a.fork.hold = r3a.fork.hold = r4a.fork.hold = r5a.fork.hold = true;
     r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
-//    r1a.fork.lock = pthread_mutex_init(&locks[0], nullptr);
-//    pthread_mutex_init(&locks[0], nullptr);
-//    dining_locks = {{}, {new std::mutex(), new std::mutex()}, {}, {}, {}, {}};
-//    dining_locks.resize(2);
 
     // todo: convert to acyclic graph
     return {{},
@@ -330,7 +321,6 @@ void send_fork(long from, long to) {
     pthread_mutex_lock(&resource_reverse.fork.lock);
     resource_reverse.fork.dirty = false;
     resource_reverse.fork.hold = true;
-//    pthread_cond_signal(&resource_reverse.fork.condition);
     pthread_mutex_unlock(&resource_reverse.fork.lock);
 }
 
