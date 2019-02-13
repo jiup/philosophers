@@ -1,11 +1,12 @@
-#include <iostream>
 #include <stdlib.h>
 #include <getopt.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <iostream>
 #include <fstream>
 #include <vector>
-#include <pthread.h>
 #include <mutex>
-#include <unistd.h>
+//#include <condition_variable>
 
 /*
  * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep
@@ -28,45 +29,61 @@
  * to srandom_r or by taking a seed as an optional command-line parameter.
  */
 
-enum class DiningState { THINKING = 1, HUNGRY, EATING };
-enum class DrinkingState { TRANQUIL = 1, THIRSTY, DRINKING };
+enum class DiningState {
+    THINKING = 1, HUNGRY, EATING
+};
+
+enum class DrinkingState {
+    TRANQUIL = 1, THIRSTY, DRINKING
+};
+
 class Resource {
 public:
     class Fork {
     public:
-        bool reqf = false;
-        bool dirty = true;
-        bool hold = false;
+        pthread_mutex_t lock{};
+        pthread_cond_t condition{};
+        volatile bool hold{};
+        volatile bool reqf{};
+        volatile bool dirty = true;
     } fork;
 
     class Bottle {
     public:
-        bool bot = false;
-        bool reqb = false;
-        bool need = false;
+        pthread_mutex_t lock{};
+        pthread_cond_t condition{};
+        volatile bool hold{};
+        volatile bool reqb{};
+        volatile bool need{};
     } bottle;
 
-    friend std::ostream& operator<<(std::ostream &out, Resource res) {
+    friend std::ostream &operator<<(std::ostream &out, Resource res) {
         if (res.fork.hold == res.fork.reqf) return out << "error";
         return out << (res.fork.dirty ? "dirty" : "clean") << " " << (res.fork.hold ? "fork" : "reqf");
     }
 };
 
 int parse_opts(int argc, char **argv);
+
 std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode);
+
 void *philosopher(void *pid);
+
 void thinking(long id);
+
 void eating(long id);
+
 void report(long id);
 
-bool send_reqf(long from, long to, Resource resource) ;
+void send_reqf(long from, long to);
 
-bool send_fork(long from, long to, Resource resource) ;
+void send_fork(long from, long to);
 
 constexpr long THINKING_MIN = 1, THINKING_MAX = 1000;
 constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000;
 constexpr long THINKING_RANGE = THINKING_MAX - THINKING_MIN;
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
+const long LOCK_INIT_SIZE = 1000;
 
 int p_cnt;
 int session_cnt = 20;
@@ -75,7 +92,6 @@ std::atomic_bool start;
 std::vector<DiningState> dining_states;
 std::vector<DrinkingState> drinking_states;
 std::vector<std::vector<std::pair<int, Resource>>> graph;
-std::vector<std::vector<Resource>> resources;
 std::vector<unsigned int> rand_seeds;
 std::mutex g_lock;
 
@@ -84,8 +100,7 @@ int main(int argc, char **argv) {
     std::cout << "press any key to continue." << std::endl;
     getchar();
 
-    // TODO
-    std::cout<<"graph initialization:"<<std::endl;
+    std::cout << "graph initialization:" << std::endl;
     for (int i = 1; i < graph.size(); i++) {
         std::cout << i << ": ";
         for (const auto &adjacent : graph[i]) {
@@ -96,20 +111,6 @@ int main(int argc, char **argv) {
     printf("config: %d philosophers will eat %d times.\n\n", p_cnt, session_cnt);
     dining_states.resize(static_cast<unsigned long>(p_cnt), DiningState::THINKING);
     drinking_states.resize(static_cast<unsigned long>(p_cnt), DrinkingState::TRANQUIL);
-
-//    resources.resize(static_cast<unsigned long>(p_cnt) + 1);
-//    r1a.fork.hold = r2a.fork.hold = r3a.fork.hold = r4a.fork.hold = r5a.fork.hold = true;
-//    r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
-//    resources[1].push_back(r1a);
-//    resources[2].push_back(r1b);
-//    resources[2].push_back(r2a);
-//    resources[3].push_back(r2b);
-//    resources[3].push_back(r3a);
-//    resources[4].push_back(r3b);
-//    resources[4].push_back(r4a);
-//    resources[5].push_back(r4b);
-//    resources[5].push_back(r5b);
-//    resources[1].push_back(r5a);
 
     pthread_t threads[p_cnt];
     rand_seeds.resize(static_cast<unsigned long>(p_cnt));
@@ -127,21 +128,30 @@ int main(int argc, char **argv) {
 int parse_opts(int argc, char **argv) {
     int opt;
     static struct option opts[] = {
-            {"session", required_argument, nullptr, 's'},
+            {"session",  required_argument, nullptr, 's'},
             {"filename", required_argument, nullptr, 'f'},
-            {nullptr, no_argument, nullptr, 0},
+            {nullptr,    no_argument,       nullptr, 0},
     };
     while ((opt = getopt_long(argc, argv, ":s:f:-", opts, nullptr)) != EOF) {
         switch (opt) {
-            case 's': session_cnt = static_cast<int>(std::strtol(optarg, nullptr, 10)); break;
-            case 'f': conf_path = optarg; break;
-            case ':': std::cerr << "invalid option: needs a value" << opt << std::endl; break;
-            case '?': std::cout << "usage: philosophers -s <session_count> -f <filename> [-]" << std::endl; exit(-1);
-            default: break;
+            case 's':
+                session_cnt = static_cast<int>(std::strtol(optarg, nullptr, 10));
+                break;
+            case 'f':
+                conf_path = optarg;
+                break;
+            case ':':
+                std::cerr << "invalid option: needs a value" << opt << std::endl;
+                break;
+            case '?':
+                std::cout << "usage: philosophers -s <session_count> -f <filename> [-]" << std::endl;
+                exit(-1);
+            default:
+                break;
         }
     }
     std::cout << "sessions count:         " << (session_cnt = session_cnt < 1 ? 20 : session_cnt) << std::endl;
-    for(; optind < argc; optind++){
+    for (; optind < argc; optind++) {
         if (!strcmp(argv[optind], "-")) {
             return 2;
         }
@@ -209,9 +219,13 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
 
     p_cnt = 5;
     Resource r1a = Resource(), r2a = Resource(), r3a = Resource(), r4a = Resource(), r5a = Resource();
-    Resource r1b= Resource(), r2b = Resource(), r3b = Resource(), r4b = Resource(), r5b = Resource();
+    Resource r1b = Resource(), r2b = Resource(), r3b = Resource(), r4b = Resource(), r5b = Resource();
     r1a.fork.hold = r2a.fork.hold = r3a.fork.hold = r4a.fork.hold = r5a.fork.hold = true;
     r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
+//    r1a.fork.lock = pthread_mutex_init(&locks[0], nullptr);
+//    pthread_mutex_init(&locks[0], nullptr);
+//    dining_locks = {{}, {new std::mutex(), new std::mutex()}, {}, {}, {}, {}};
+//    dining_locks.resize(2);
 
     // todo: convert to acyclic graph
     return {{},
@@ -230,93 +244,95 @@ void *philosopher(void *pid) {
         std::vector<std::pair<int, Resource>> refs = graph[id];
         switch (dining_states[id]) {
             case DiningState::THINKING:
+                for (std::pair<int, Resource> ref_pair : refs) {
+                    Resource resource = ref_pair.second;
+                    pthread_mutex_lock(&resource.fork.lock);
+                    if (resource.fork.hold && resource.fork.dirty && resource.fork.reqf) {
+                        resource.fork.dirty = false;
+                        send_fork(id, ref_pair.first);
+                        resource.fork.hold = false;
+                    }
+                    pthread_mutex_unlock(&resource.fork.lock);
+                }
                 thinking(id);
                 dining_states[id] = DiningState::HUNGRY;
                 break;
+
             case DiningState::HUNGRY:
-                // R1: req_fork
                 for (std::pair<int, Resource> ref_pair : refs) {
                     Resource resource = ref_pair.second;
-                    if (resource.fork.reqf && !resource.fork.hold) {
-                        if (!send_reqf(id, ref_pair.first, resource)) {
-                            usleep(1);
-                            continue;
+                    pthread_mutex_lock(&resource.fork.lock);
+                    // fork exists, yield precedence if it is dirty
+                    if (resource.fork.hold && resource.fork.dirty && resource.fork.reqf) {
+                        resource.fork.dirty = false;
+                        send_fork(id, ref_pair.first);
+                        resource.fork.hold = false;
+                    }
+                    if (!resource.fork.hold) {
+                        while (!resource.fork.reqf) {
+                            // waiting for fork-ticket
+                            pthread_cond_wait(&resource.fork.condition, &resource.fork.lock);
                         }
+                        // single request sent
+                        send_reqf(id, ref_pair.first);
+                        resource.fork.reqf = false;
                     }
+                    pthread_mutex_unlock(&resource.fork.lock);
                 }
-                // double check flags
-                for (std::pair<int, Resource> ref_pair : refs) {
-                    Resource resource = ref_pair.second;
-                    if (!resource.fork.hold || resource.fork.reqf) {
-                        usleep(1);
-                        continue;
-                    }
-                }
+                // all forks received
                 dining_states[id] = DiningState::EATING;
                 break;
+
             case DiningState::EATING:
                 eating(id);
-                // R2: send_fork
                 for (std::pair<int, Resource> ref_pair : refs) {
                     Resource resource = ref_pair.second;
-                    if (!resource.fork.reqf && resource.fork.dirty) {
-                        if (!send_fork(id, ref_pair.first, resource)) {
-                            usleep(1);
-                            continue;
-                        }
-                    }
+                    pthread_mutex_lock(&resource.fork.lock);
+                    resource.fork.dirty = true; // already ate
+                    pthread_mutex_unlock(&resource.fork.lock);
                 }
-                dining_states[id] = DiningState::THINKING;
                 session++;
+                dining_states[id] = DiningState::THINKING;
                 break;
         }
     }
     return nullptr;
 }
 
-bool send_reqf(long from, long to, Resource resource) {
-    auto it = std::find_if (graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+// (R1) Requesting a fork f:
+void send_reqf(long from, long to) {
+    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
-        std::cerr << "reverse edge not found" << std::endl;
-        return false;
+        std::cerr << "warn: reverse edge for <" << from << "> not found" << std::endl;
+        return;
     }
+    // (R3) Receiving a request token for f:
     Resource resource_reverse = (*it).second;
-    // >>> synchronized start
-    resource.fork.reqf = false;
+    pthread_mutex_lock(&resource_reverse.fork.lock);
     resource_reverse.fork.reqf = true;
-    // <<< synchronized end
-    return true;
+    pthread_cond_signal(&resource_reverse.fork.condition);
+    pthread_mutex_unlock(&resource_reverse.fork.lock);
 }
 
-bool send_fork(long from, long to, Resource resource) {
-    auto it = std::find_if (graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+// (R2) Releasing a fork f:
+void send_fork(long from, long to) {
+    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
-        std::cerr << "reverse edge not found" << std::endl;
-        return false;
+        std::cerr << "warn: reverse edge for <" << from << "> not found" << std::endl;
+        return;
     }
+    // (R4) Receiving a fork f:
     Resource resource_reverse = (*it).second;
-    // >>> synchronized start
-    resource.fork.dirty = false;
-    resource.fork.hold = false;
+    pthread_mutex_lock(&resource_reverse.fork.lock);
     resource_reverse.fork.dirty = false;
     resource_reverse.fork.hold = true;
-    // <<< synchronized end
-    return true;
+//    pthread_cond_signal(&resource_reverse.fork.condition);
+    pthread_mutex_unlock(&resource_reverse.fork.lock);
 }
-
-/*
-bool recv_reqf(long id, long from, Resource resource) {
-    return false;
-}
-
-bool recv_fork(long id, long from, Resource resource) {
-    return false;
-}
-*/
 
 void eating(long id) {
     thinking(id);
