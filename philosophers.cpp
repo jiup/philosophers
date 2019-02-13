@@ -77,7 +77,7 @@ void send_bottle(long from, long to);
  * sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
  */
 constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000; // in ms
-constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; // in ms
+constexpr long DRINKING_MIN = 10, DRINKING_MAX = 10000; // in ms
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
 constexpr long DRINKING_RANGE = DRINKING_MAX - DRINKING_MIN;
 
@@ -174,8 +174,8 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
                     exit(-1);
                 }
                 Resource pos = Resource(), neg = Resource();
-                pos.fork.hold = true;
-                neg.fork.reqf = true;
+                pos.fork.hold = pos.bottle.hold = true;
+                neg.fork.reqf = neg.bottle.reqb = true;
                 graph[p1].push_back(std::make_pair(p2, p1 < p2 ? pos : neg));
                 graph[p2].push_back(std::make_pair(p1, p1 < p2 ? neg : pos));
                 n++;
@@ -184,6 +184,9 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
                 std::cerr << "error: invalid graph" << std::endl;
                 exit(-1);
             }
+
+            // todo: convert to acyclic graph
+            std::cerr << "todo: convert to acyclic graph" << std::endl;
             return graph;
         } else {
             std::cerr << "error: file '" << conf_path << "' not found" << std::endl;
@@ -200,8 +203,8 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
             std::cin >> p1 >> p2;
             if (p1 < 1 || p2 < 1 || p1 > p_cnt || p2 > p_cnt) break;
             Resource pos = Resource(), neg = Resource();
-            pos.fork.hold = true;
-            neg.fork.reqf = true;
+            pos.fork.hold = pos.bottle.hold = true;
+            neg.fork.reqf = neg.bottle.reqb = true;
             graph[p1].push_back(std::make_pair(p2, p1 < p2 ? pos : neg));
             graph[p2].push_back(std::make_pair(p1, p1 < p2 ? neg : pos));
             n++;
@@ -210,8 +213,10 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
             std::cerr << "error: invalid graph" << std::endl;
             exit(-1);
         }
-        return graph;
 
+        // todo: convert to acyclic graph
+        std::cerr << "todo: convert to acyclic graph" << std::endl;
+        return graph;
     }
 
     p_cnt = 5;
@@ -221,8 +226,6 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
     r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
     r1a.bottle.hold = r2a.bottle.hold = r3a.bottle.hold = r4a.bottle.hold = r5a.bottle.hold = true;
     r1b.bottle.reqb = r2b.bottle.reqb = r3b.bottle.reqb = r4b.bottle.reqb = r5b.bottle.reqb = true;
-
-    // todo: convert to acyclic graph
     return {{},
             {std::make_pair(2, r1a), std::make_pair(5, r5a)},
             {std::make_pair(3, r2a), std::make_pair(1, r1b)},
@@ -235,7 +238,7 @@ void *philosopher(void *pid) {
     while (!start.load());
     long id = (long) pid;
     for (int session = 0; session < session_cnt;) {
-         report(id);
+        report(id);
         std::vector<std::pair<int, Resource>> refs = graph[id];
 
         switch (drinking_states[id]) {
