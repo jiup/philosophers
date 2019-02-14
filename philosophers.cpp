@@ -81,6 +81,7 @@ constexpr long DRINKING_MIN = 10, DRINKING_MAX = 10000; // in ms
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
 constexpr long DRINKING_RANGE = DRINKING_MAX - DRINKING_MIN;
 
+bool debug;
 int p_cnt;
 int session_cnt = 20;
 std::string conf_path;
@@ -89,7 +90,7 @@ std::vector<DiningState> dining_states;
 std::vector<DrinkingState> drinking_states;
 std::vector<std::vector<std::pair<int, Resource>>> graph;
 std::vector<unsigned int> rand_seeds;
-std::mutex g_lock;
+std::mutex print_lock;
 
 int main(int argc, char **argv) {
     graph = init_graph(parse_opts(argc, argv));
@@ -129,13 +130,16 @@ int parse_opts(int argc, char **argv) {
             {"filename", required_argument, nullptr, 'f'},
             {nullptr,    no_argument,       nullptr, 0},
     };
-    while ((opt = getopt_long(argc, argv, ":s:f:-", opts, nullptr)) != EOF) {
+    while ((opt = getopt_long(argc, argv, ":s:f:-d", opts, nullptr)) != EOF) {
         switch (opt) {
             case 's':
                 session_cnt = static_cast<int>(std::strtol(optarg, nullptr, 10));
                 break;
             case 'f':
                 conf_path = optarg;
+                break;
+            case 'd':
+                debug = true;
                 break;
             case ':':
                 std::cerr << "invalid option: needs a value" << opt << std::endl;
@@ -301,7 +305,6 @@ void *philosopher(void *pid) {
                     }
                     pthread_mutex_unlock(&resource.fork.lock);
                 }
-                // thinking(id); // todo: deprecated
 
                 // (D1) A thinking, thirsty philosopher becomes hungry
                 if (drinking_states[id] == DrinkingState::THIRSTY) {
@@ -341,7 +344,6 @@ void *philosopher(void *pid) {
                     resource.fork.dirty = true; // already ate
                     pthread_mutex_unlock(&resource.fork.lock);
                 }
-                // eating(id); // todo: deprecated
                 // (D2) An eating, nonthirsty philosopher starts thinking
                 if (drinking_states[id] != DrinkingState::THIRSTY) {
                     dining_states[id] = DiningState::THINKING;
@@ -429,7 +431,7 @@ void drinking(long id) {
 }
 
 void report_drinking(long id) {
-    std::lock_guard<std::mutex> lock(g_lock);
+    std::lock_guard<std::mutex> lock(print_lock);
     std::cout << "philosopher " << id + 1 << " ";
     switch (drinking_states[id]) {
         case DrinkingState::TRANQUIL:
@@ -445,7 +447,7 @@ void report_drinking(long id) {
 }
 
 void report_dining(long id) {
-    std::lock_guard<std::mutex> lock(g_lock);
+    std::lock_guard<std::mutex> lock(print_lock);
     std::cout << "philosopher " << id + 1 << " ";
     switch (dining_states[id]) {
         case DiningState::THINKING:
@@ -461,7 +463,9 @@ void report_dining(long id) {
 }
 
 void report(long id) {
-    std::lock_guard<std::mutex> lock(g_lock);
+    if (!debug) return;
+
+    std::lock_guard<std::mutex> lock(print_lock);
     std::cout << "philosopher " << id + 1 << " is ";
     switch (drinking_states[id]) {
         case DrinkingState::TRANQUIL:
