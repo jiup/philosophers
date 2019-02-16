@@ -77,7 +77,7 @@ void send_bottle(long from, long to);
  * sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
  */
 constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000; // in ms
-constexpr long DRINKING_MIN = 10, DRINKING_MAX = 10000; // in ms
+constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; // in ms
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
 constexpr long DRINKING_RANGE = DRINKING_MAX - DRINKING_MIN;
 
@@ -333,6 +333,17 @@ void *philosopher(void *pid) {
                     }
                     pthread_mutex_unlock(&resource.fork.lock);
                 }
+
+                for (std::pair<int, Resource> ref_pair : refs) {
+                    Resource resource = ref_pair.second;
+                    pthread_mutex_lock(&resource.fork.lock);
+                    if (!resource.fork.hold && !resource.fork.reqf) {
+                        // waiting for fork
+                        pthread_cond_wait(&resource.fork.condition, &resource.fork.lock);
+                    }
+                    pthread_mutex_unlock(&resource.fork.lock);
+                }
+
                 // all forks received
                 dining_states[id] = DiningState::EATING;
                 break;
@@ -386,6 +397,7 @@ void send_fork(long from, long to) {
     pthread_mutex_lock(&resource_reverse.fork.lock);
     resource_reverse.fork.dirty = false;
     resource_reverse.fork.hold = true;
+    pthread_cond_signal(&resource_reverse.fork.condition);
     pthread_mutex_unlock(&resource_reverse.fork.lock);
 }
 
