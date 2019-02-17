@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
     getchar();
 
     std::cout << "graph initialization:" << std::endl;
-    for (int i = 1; i < graph.size(); i++) {
+    for (int i = 0; i < graph.size(); i++) {
         std::cout << i << ": ";
         for (const auto &adjacent : graph[i]) {
             std::cout << adjacent.first << " (" << adjacent.second << ") ";
@@ -170,7 +170,7 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
         if (file.good()) {
             int p1, p2, n = 0;
             file >> p_cnt;
-            std::vector<std::vector<std::pair<int, Resource>>> graph(static_cast<unsigned long>(p_cnt + 1));
+            std::vector<std::vector<std::pair<int, Resource>>> graph(static_cast<unsigned long>(p_cnt));
             for (int i = 0; i < p_cnt; i++) {
                 file >> p1 >> p2;
                 if (p1 < 1 || p2 < 1 || p1 > p_cnt || p2 > p_cnt) {
@@ -180,17 +180,14 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
                 Resource pos = Resource(), neg = Resource();
                 pos.fork.hold = pos.bottle.hold = true;
                 neg.fork.reqf = neg.bottle.reqb = true;
-                graph[p1].push_back(std::make_pair(p2, p1 < p2 ? pos : neg));
-                graph[p2].push_back(std::make_pair(p1, p1 < p2 ? neg : pos));
+                graph[p1 - 1].push_back(std::make_pair(p2 - 1, p1 < p2 ? pos : neg));
+                graph[p2 - 1].push_back(std::make_pair(p1 - 1, p1 < p2 ? neg : pos));
                 n++;
             }
             if (n < p_cnt - 1 || n > (p_cnt * (p_cnt - 1) / 2)) {
                 std::cerr << "error: invalid graph" << std::endl;
                 exit(-1);
             }
-
-            // todo: convert to acyclic graph
-            std::cerr << "todo: convert to acyclic graph" << std::endl;
             return graph;
         } else {
             std::cerr << "error: file '" << conf_path << "' not found" << std::endl;
@@ -202,24 +199,21 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
         std::cout << "number of philosophers: ";
         std::cin >> p_cnt;
         std::cout << "edge pairs (0 to exit):" << std::endl;
-        std::vector<std::vector<std::pair<int, Resource>>> graph(static_cast<unsigned long>(p_cnt + 1));
+        std::vector<std::vector<std::pair<int, Resource>>> graph(static_cast<unsigned long>(p_cnt));
         while (true) {
             std::cin >> p1 >> p2;
             if (p1 < 1 || p2 < 1 || p1 > p_cnt || p2 > p_cnt) break;
             Resource pos = Resource(), neg = Resource();
             pos.fork.hold = pos.bottle.hold = true;
             neg.fork.reqf = neg.bottle.reqb = true;
-            graph[p1].push_back(std::make_pair(p2, p1 < p2 ? pos : neg));
-            graph[p2].push_back(std::make_pair(p1, p1 < p2 ? neg : pos));
+            graph[p1 - 1].push_back(std::make_pair(p2 - 1, p1 < p2 ? pos : neg));
+            graph[p2 - 1].push_back(std::make_pair(p1 - 1, p1 < p2 ? neg : pos));
             n++;
         }
         if (n < p_cnt - 1 || n > (p_cnt * (p_cnt - 1) / 2)) {
             std::cerr << "error: invalid graph" << std::endl;
             exit(-1);
         }
-
-        // todo: convert to acyclic graph
-        std::cerr << "todo: convert to acyclic graph" << std::endl;
         return graph;
     }
 
@@ -230,12 +224,11 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
     r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
     r1a.bottle.hold = r2a.bottle.hold = r3a.bottle.hold = r4a.bottle.hold = r5a.bottle.hold = true;
     r1b.bottle.reqb = r2b.bottle.reqb = r3b.bottle.reqb = r4b.bottle.reqb = r5b.bottle.reqb = true;
-    return {{},
-            {std::make_pair(2, r1a), std::make_pair(5, r5a)},
-            {std::make_pair(3, r2a), std::make_pair(1, r1b)},
-            {std::make_pair(4, r3a), std::make_pair(2, r2b)},
-            {std::make_pair(5, r4a), std::make_pair(3, r3b)},
-            {std::make_pair(1, r5b), std::make_pair(4, r4b)}};
+    return {{std::make_pair(1, r1a), std::make_pair(4, r5a)},
+            {std::make_pair(2, r2a), std::make_pair(0, r1b)},
+            {std::make_pair(3, r3a), std::make_pair(1, r2b)},
+            {std::make_pair(4, r4a), std::make_pair(2, r3b)},
+            {std::make_pair(0, r5b), std::make_pair(3, r4b)}};
 }
 
 void *philosopher(void *pid) {
@@ -466,7 +459,7 @@ void report_dining(long id) {
         return;
     }
     std::lock_guard<std::mutex> lock(print_lock);
-    std::cout << "philosopher " << id + 1 << " ";
+    std::cout << "philosopher " << id << " ";
     switch (dining_states[id]) {
         case DiningState::THINKING:
             std::cout << "thinking" << std::endl;
