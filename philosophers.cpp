@@ -81,7 +81,7 @@ constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; // in ms
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
 constexpr long DRINKING_RANGE = DRINKING_MAX - DRINKING_MIN;
 
-bool debug;
+bool debug = false;
 int p_cnt;
 int session_cnt = 20;
 std::string conf_path;
@@ -443,6 +443,9 @@ void drinking(long id) {
 }
 
 void report_drinking(long id) {
+    if (!debug && drinking_states[id] != DrinkingState::DRINKING) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(print_lock);
     std::cout << "philosopher " << id + 1 << " ";
     switch (drinking_states[id]) {
@@ -459,6 +462,9 @@ void report_drinking(long id) {
 }
 
 void report_dining(long id) {
+    if (!debug && dining_states[id] != DiningState::THINKING) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(print_lock);
     std::cout << "philosopher " << id + 1 << " ";
     switch (dining_states[id]) {
