@@ -422,12 +422,12 @@ void *philosopher(void *pid) {
                         send_fork(id, to->first);
                     }
                 }
-                if (session == session_cnt) {
-                    std::cout << id << " thinking..."<<session<< std::endl;
-                }
                 print_lock.lock();
                 std::cout << id << " eating..."<<session<< std::endl;
                 print_lock.unlock();
+                if (session == session_cnt) {
+                    std::cout << id << " thinking..."<<session<< std::endl;
+                }
                 // (D2) An eating, nonthirsty philosopher starts thinking
 //                if (drinking_states[id] != DrinkingState::THIRSTY) {
                     drinking(id);
