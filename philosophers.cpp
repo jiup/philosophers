@@ -6,6 +6,10 @@
 #include <fstream>
 #include <vector>
 #include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <cstring>
+#include <algorithm>
 
 /**
  * Drinking Philosophers Problem - Chandy and Misra's solution
@@ -356,10 +360,11 @@ void *philosopher(void *pid) {
                 }
                 print_lock.lock();
                 std::cout << "philosopher " << id + 1 << " drinking" << std::endl;
-                print_lock.unlock();
                 if (session == session_cnt) {
                     std::cout << "philosopher " << id + 1 << " thinking" << std::endl;
+                    break;
                 }
+                print_lock.unlock();
                 // (D2) An eating, nonthirsty philosopher starts thinking
 //                if (drinking_states[id] != DrinkingState::THIRSTY) {
                     drinking(id);
