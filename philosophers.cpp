@@ -21,35 +21,30 @@ enum class DrinkingState {
     TRANQUIL = 1, THIRSTY, DRINKING
 };
 
-class Resource {
-public:
-    class Fork {
-    public:
-        pthread_mutex_t lock{};
-        pthread_cond_t condition{};
-        volatile bool hold{};
-        volatile bool reqf{};
-        volatile bool dirty = true;
-    } fork;
+struct Fork {
+    std::mutex lock;
+    std::condition_variable condition;
+    volatile bool hold;
+    volatile bool reqf;
+    volatile bool dirty = true;
+};
 
-    class Bottle {
-    public:
-        pthread_mutex_t lock{};
-        pthread_cond_t condition{};
-        volatile bool hold{};
-        volatile bool reqb{};
-        // volatile bool need{}; // ignore for simplicity
-    } bottle;
+struct Bottle {
+    std::mutex lock;
+    std::condition_variable condition{};
+    volatile bool hold;
+    volatile bool reqb;
+    // volatile bool need{}; // ignore for simplicity
+};
 
-    friend std::ostream &operator<<(std::ostream &out, Resource res) {
-        if (res.fork.hold == res.fork.reqf) return out << "error";
-        return out << (res.bottle.hold ? "bottle" : "reqb  ") << " " << (res.fork.hold ? "fork" : "reqf");
-    }
+struct Resource {
+    Fork fork;
+    Bottle bottle;
 };
 
 int parse_opts(int argc, char **argv);
 
-std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode);
+std::vector<std::vector<std::pair<int, Resource*>>> init_graph(int mode);
 
 void *philosopher(void *pid);
 
@@ -88,7 +83,7 @@ std::string conf_path;
 std::atomic_bool start;
 std::vector<DiningState> dining_states;
 std::vector<DrinkingState> drinking_states;
-std::vector<std::vector<std::pair<int, Resource>>> graph;
+std::vector<std::vector<std::pair<int, Resource*>>> graph;
 std::vector<unsigned int> rand_seeds;
 std::mutex print_lock;
 
@@ -164,22 +159,22 @@ int parse_opts(int argc, char **argv) {
     return 0;
 }
 
-std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
+std::vector<std::vector<std::pair<int, Resource*>>> init_graph(int mode) {
     if (mode == 1) {
         std::ifstream file(conf_path);
         if (file.good()) {
             int p1, p2, n = 0;
             file >> p_cnt;
-            std::vector<std::vector<std::pair<int, Resource>>> graph(static_cast<unsigned long>(p_cnt));
+            std::vector<std::vector<std::pair<int, Resource*>>> graph(static_cast<unsigned long>(p_cnt));
             for (int i = 0; i < p_cnt; i++) {
                 file >> p1 >> p2;
                 if (p1 < 1 || p2 < 1 || p1 > p_cnt || p2 > p_cnt) {
                     std::cerr << "error: invalid graph" << std::endl;
                     exit(-1);
                 }
-                Resource pos = Resource(), neg = Resource();
-                pos.fork.hold = pos.bottle.hold = true;
-                neg.fork.reqf = neg.bottle.reqb = true;
+                Resource *pos = new Resource, *neg = new Resource;
+                pos->fork.hold = pos->bottle.hold = true;
+                neg->fork.reqf = neg->bottle.reqb = true;
                 graph[p1 - 1].push_back(std::make_pair(p2 - 1, p1 < p2 ? pos : neg));
                 graph[p2 - 1].push_back(std::make_pair(p1 - 1, p1 < p2 ? neg : pos));
                 n++;
@@ -199,13 +194,13 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
         std::cout << "number of philosophers: ";
         std::cin >> p_cnt;
         std::cout << "edge pairs (0 to exit):" << std::endl;
-        std::vector<std::vector<std::pair<int, Resource>>> graph(static_cast<unsigned long>(p_cnt));
+        std::vector<std::vector<std::pair<int, Resource*>>> graph(static_cast<unsigned long>(p_cnt));
         while (true) {
             std::cin >> p1 >> p2;
             if (p1 < 1 || p2 < 1 || p1 > p_cnt || p2 > p_cnt) break;
-            Resource pos = Resource(), neg = Resource();
-            pos.fork.hold = pos.bottle.hold = true;
-            neg.fork.reqf = neg.bottle.reqb = true;
+            Resource *pos = new Resource(), *neg = new Resource();
+            pos->fork.hold = pos->bottle.hold = true;
+            neg->fork.reqf = neg->bottle.reqb = true;
             graph[p1 - 1].push_back(std::make_pair(p2 - 1, p1 < p2 ? pos : neg));
             graph[p2 - 1].push_back(std::make_pair(p1 - 1, p1 < p2 ? neg : pos));
             n++;
@@ -218,12 +213,12 @@ std::vector<std::vector<std::pair<int, Resource>>> init_graph(int mode) {
     }
 
     p_cnt = 5;
-    Resource r1a = Resource(), r2a = Resource(), r3a = Resource(), r4a = Resource(), r5a = Resource();
-    Resource r1b = Resource(), r2b = Resource(), r3b = Resource(), r4b = Resource(), r5b = Resource();
-    r1a.fork.hold = r2a.fork.hold = r3a.fork.hold = r4a.fork.hold = r5a.fork.hold = true;
-    r1b.fork.reqf = r2b.fork.reqf = r3b.fork.reqf = r4b.fork.reqf = r5b.fork.reqf = true;
-    r1a.bottle.hold = r2a.bottle.hold = r3a.bottle.hold = r4a.bottle.hold = r5a.bottle.hold = true;
-    r1b.bottle.reqb = r2b.bottle.reqb = r3b.bottle.reqb = r4b.bottle.reqb = r5b.bottle.reqb = true;
+    Resource *r1a = new Resource, *r2a = new Resource, *r3a = new Resource, *r4a = new Resource, *r5a = new Resource;
+    Resource *r1b = new Resource, *r2b = new Resource, *r3b = new Resource, *r4b = new Resource, *r5b = new Resource;
+    r1a->fork.hold = r2a->fork.hold = r3a->fork.hold = r4a->fork.hold = r5a->fork.hold = true;
+    r1b->fork.reqf = r2b->fork.reqf = r3b->fork.reqf = r4b->fork.reqf = r5b->fork.reqf = true;
+    r1a->bottle.hold = r2a->bottle.hold = r3a->bottle.hold = r4a->bottle.hold = r5a->bottle.hold = true;
+    r1b->bottle.reqb = r2b->bottle.reqb = r3b->bottle.reqb = r4b->bottle.reqb = r5b->bottle.reqb = true;
     return {{std::make_pair(1, r1a), std::make_pair(4, r5a)},
             {std::make_pair(2, r2a), std::make_pair(0, r1b)},
             {std::make_pair(3, r3a), std::make_pair(1, r2b)},
@@ -236,18 +231,20 @@ void *philosopher(void *pid) {
     long id = (long) pid;
     for (int session = 0; session < session_cnt;) {
         report(id);
-        std::vector<std::pair<int, Resource>> refs = graph[id];
+        std::vector<std::pair<int, Resource*>> refs = graph[id];
 
         switch (drinking_states[id]) {
             case DrinkingState::TRANQUIL:
-                for (std::pair<int, Resource> &ref_pair : refs) {
-                    Resource *resource = &ref_pair.second;
-                    pthread_mutex_lock(&resource->bottle.lock);
+                for (std::pair<int, Resource*> ref_pair : refs) {
+                    Resource *resource = ref_pair.second;
+//                    pthread_mutex_lock(&resource->bottle.lock);
+                    resource->bottle.lock.lock();
                     if (resource->bottle.hold && resource->bottle.reqb && !resource->fork.hold) {
                         send_bottle(id, ref_pair.first);
                         resource->bottle.hold = false;
                     }
-                    pthread_mutex_unlock(&resource->bottle.lock);
+                    resource->bottle.lock.unlock();
+//                    pthread_mutex_unlock(&resource->bottle.lock);
                 }
                 tranquil(id);
                 drinking_states[id] = DrinkingState::THIRSTY;
@@ -256,9 +253,10 @@ void *philosopher(void *pid) {
             case DrinkingState::THIRSTY:
                 // For simplicity and for ease of grading, each drinking session should employ
                 // all adjacent bottles (not the arbitrary subset allowed by Chandy and Misra).
-                for (std::pair<int, Resource> &ref_pair : refs) {
-                    Resource *resource = &ref_pair.second;
-                    pthread_mutex_lock(&resource->bottle.lock);
+                for (std::pair<int, Resource*> ref_pair : refs) {
+                    Resource *resource = ref_pair.second;
+//                    pthread_mutex_lock(&resource->bottle.lock);
+                    resource->bottle.lock.lock();
                     if (resource->bottle.hold && resource->bottle.reqb && !resource->fork.hold) {
                         send_bottle(id, ref_pair.first);
                         resource->bottle.hold = false;
@@ -266,13 +264,16 @@ void *philosopher(void *pid) {
                     if (!resource->bottle.hold) {
                         while (!resource->bottle.reqb) {
                             // waiting for bottle-ticket
-                            pthread_cond_wait(&resource->bottle.condition, &resource->bottle.lock);
+//                            pthread_cond_wait(&resource->bottle.condition, &resource->bottle.lock);
+                            std::unique_lock<std::mutex> lk(resource->bottle.lock);
+                            resource->bottle.condition.wait(lk);
                         }
                         // single request sent
                         send_reqb(id, ref_pair.first);
                         resource->bottle.reqb = false;
                     }
-                    pthread_mutex_unlock(&resource->bottle.lock);
+                    resource->bottle.lock.unlock();
+//                    pthread_mutex_unlock(&resource->bottle.lock);
                 }
                 // all bottles received
                 drinking_states[id] = DrinkingState::DRINKING;
@@ -291,23 +292,25 @@ void *philosopher(void *pid) {
                 print_lock.lock();
                 std::cout << id << " thinking..." << std::endl;
                 print_lock.unlock();
-                for (std::pair<int, Resource> &ref_pair : refs) {
-                    auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource> pair) -> bool {return ref_pair.first == pair.first;});
-                    pthread_mutex_lock(&to->second.fork.lock);
-                    if (to->second.fork.hold && to->second.fork.dirty && to->second.fork.reqf) {
+                for (std::pair<int, Resource*> ref_pair : refs) {
+                    auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
+//                    pthread_mutex_lock(&to->second->fork.lock);
+                    to->second->fork.lock.lock();
+                    if (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf) {
                         send_fork(id, ref_pair.first);
-                        to->second.fork.hold = false;
-                        to->second.fork.dirty = false;
+                        to->second->fork.hold = false;
+                        to->second->fork.dirty = false;
 
                         print_lock.lock();
-                        auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource> pair) -> bool {return id == pair.first;});
+                        auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource*> pair) -> bool {return id == pair.first;});
                         std::cout<<id<<" sent fork to "<<ref_pair.first<<" "<<
-                            to->second.fork.hold<<to->second.fork.dirty<<to->second.fork.reqf<<"==="<<
-                            back->second.fork.hold<<back->second.fork.dirty<<back->second.fork.reqf<<std::endl;
+                            to->second->fork.hold<<to->second->fork.dirty<<to->second->fork.reqf<<"==="<<
+                            back->second->fork.hold<<back->second->fork.dirty<<back->second->fork.reqf<<std::endl;
                         print_lock.unlock();
 
                     }
-                    pthread_mutex_unlock(&to->second.fork.lock);
+                    to->second->fork.lock.unlock();
+//                    pthread_mutex_unlock(&to->second->fork.lock);
                 }
 
                 // (D1) A thinking, thirsty philosopher becomes hungry
@@ -320,65 +323,80 @@ void *philosopher(void *pid) {
                 print_lock.lock();
                 std::cout << id << " hungry..." << std::endl;
                 print_lock.unlock();
-                for (std::pair<int, Resource> &ref_pair : refs) {
-                    auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource> pair) -> bool {return ref_pair.first == pair.first;});
-                    pthread_mutex_lock(&(to->second.fork.lock));
+                for (std::pair<int, Resource*> ref_pair : refs) {
+                    auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
+//                    pthread_mutex_lock(&(to->second->fork.lock));
+                    to->second->fork.lock.lock();
                     // fork exists, yield precedence if it is dirty
-                    if (to->second.fork.hold && to->second.fork.dirty && to->second.fork.reqf) {
+                    if (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf) {
                         send_fork(id, ref_pair.first);
-                        to->second.fork.hold = false;
-                        to->second.fork.dirty = false;
+                        to->second->fork.hold = false;
+                        to->second->fork.dirty = false;
 
                         print_lock.lock();
-                        auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource> pair) -> bool {return id == pair.first;});
+                        auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource*> pair) -> bool {return id == pair.first;});
                         std::cout<<id<<" sent fork to "<<ref_pair.first<<" "<<
-                                 to->second.fork.hold<<to->second.fork.dirty<<to->second.fork.reqf<<"==="<<
-                                 back->second.fork.hold<<back->second.fork.dirty<<back->second.fork.reqf<<std::endl;
+                                 to->second->fork.hold<<to->second->fork.dirty<<to->second->fork.reqf<<"==="<<
+                                 back->second->fork.hold<<back->second->fork.dirty<<back->second->fork.reqf<<std::endl;
                         print_lock.unlock();
 
                     }
-                    if (!to->second.fork.hold) {
-                        while (!to->second.fork.reqf) {
+                    if (!to->second->fork.hold) {
+                        while (!to->second->fork.reqf) {
                             // waiting for fork-ticket
-                            pthread_cond_wait(&(to->second.fork.condition), &(to->second.fork.lock));
+//                            pthread_cond_wait(&(to->second->fork.condition), &(to->second->fork.lock));
+                            std::unique_lock<std::mutex> lk(to->second->fork.lock);
+                            to->second->fork.condition.wait(lk);
 
                             print_lock.lock();
-                            auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource> pair) -> bool {return id == pair.first;});
+                            auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource*> pair) -> bool {return id == pair.first;});
                             std::cout<<id<<" recv reqf from "<<ref_pair.first<<" "<<
-                                     to->second.fork.hold<<to->second.fork.dirty<<to->second.fork.reqf<<"---"<<
-                                     back->second.fork.hold<<back->second.fork.dirty<<back->second.fork.reqf<<std::endl;
+                                     to->second->fork.hold<<to->second->fork.dirty<<to->second->fork.reqf<<"---"<<
+                                     back->second->fork.hold<<back->second->fork.dirty<<back->second->fork.reqf<<std::endl;
                             print_lock.unlock();
                         }
                         // single request sent
                         send_reqf(id, ref_pair.first);
-                        to->second.fork.reqf = false;
+                        to->second->fork.reqf = false;
 
                         print_lock.lock();
-                        auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource> pair) -> bool {return id == pair.first;});\
+                        auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource*> pair) -> bool {return id == pair.first;});\
                         std::cout<<id<<" sent reqf to "<<ref_pair.first<<" "<<
-                                 to->second.fork.hold<<to->second.fork.dirty<<to->second.fork.reqf<<"==="<<
-                                 back->second.fork.hold<<back->second.fork.dirty<<back->second.fork.reqf<<std::endl;
+                                 to->second->fork.hold<<to->second->fork.dirty<<to->second->fork.reqf<<"==="<<
+                                 back->second->fork.hold<<back->second->fork.dirty<<back->second->fork.reqf<<std::endl;
                         print_lock.unlock();
                     }
-                    pthread_mutex_unlock(&(to->second.fork.lock));
+                    to->second->fork.lock.unlock();
+//                    pthread_mutex_unlock(&(to->second->fork.lock));
                 }
 
-                for (std::pair<int, Resource> &ref_pair : refs) {
-                    auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource> pair) -> bool {return ref_pair.first == pair.first;});
-                    pthread_mutex_lock(&(to->second.fork.lock));
-                    if (!to->second.fork.hold && !to->second.fork.reqf) {
+                for (std::pair<int, Resource*> ref_pair : refs) {
+                    auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
+//                    pthread_mutex_lock(&(to->second->fork.lock));
+                    to->second->fork.lock.lock();
+                    if (!to->second->fork.hold && !to->second->fork.reqf) {
 
                         print_lock.lock();
-                        auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource> pair) -> bool {return id == pair.first;});\
-                        std::cout<<id<<" wait on reqf from "<<ref_pair.first<<" "<<
-                                 to->second.fork.hold<<to->second.fork.dirty<<to->second.fork.reqf<<"==="<<
-                                 back->second.fork.hold<<back->second.fork.dirty<<back->second.fork.reqf<<std::endl;
+                        auto back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource*> pair) -> bool {return id == pair.first;});\
+                        std::cout<<id<<" wait on fork from "<<ref_pair.first<<" "<<
+                                 to->second->fork.hold<<to->second->fork.dirty<<to->second->fork.reqf<<"==="<<
+                                 back->second->fork.hold<<back->second->fork.dirty<<back->second->fork.reqf<<std::endl;
                         print_lock.unlock();
 
                         // waiting for fork
-                        pthread_cond_wait(&to->second.fork.condition, &to->second.fork.lock);
+//                        pthread_cond_wait(&to->second->fork.condition, &to->second->fork.lock);
+                        std::unique_lock<std::mutex> lk(to->second->fork.lock);
+                        to->second->fork.condition.wait(lk);
+
+                        print_lock.lock();
+                        back = std::find_if(graph[ref_pair.first].begin(), graph[ref_pair.first].end(), [id](std::pair<int, Resource*> pair) -> bool {return id == pair.first;});\
+                        std::cout<<id<<" received fork from "<<ref_pair.first<<" "<<
+                                 to->second->fork.hold<<to->second->fork.dirty<<to->second->fork.reqf<<"==="<<
+                                 back->second->fork.hold<<back->second->fork.dirty<<back->second->fork.reqf<<std::endl;
+                        print_lock.unlock();
                     }
-                    pthread_mutex_unlock(&to->second.fork.lock);
+                    to->second->fork.lock.unlock();
+//                    pthread_mutex_unlock(&to->second->fork.lock);
                 }
 
                 print_lock.lock();
@@ -393,11 +411,13 @@ void *philosopher(void *pid) {
                 print_lock.lock();
                 std::cout << id << " eating..." << std::endl;
                 print_lock.unlock();
-                for (std::pair<int, Resource> &ref_pair : refs) {
-                    auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource> pair) -> bool {return ref_pair.first == pair.first;});
-                    pthread_mutex_lock(&(to->second.fork.lock));
-                    to->second.fork.dirty = true; // already ate
-                    pthread_mutex_unlock(&(to->second.fork.lock));
+                for (std::pair<int, Resource*> ref_pair : refs) {
+                    auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
+//                    pthread_mutex_lock(&(to->second->fork.lock));
+                    to->second->fork.lock.lock();
+                    to->second->fork.dirty = true; // already ate
+                    to->second->fork.lock.unlock();
+//                    pthread_mutex_unlock(&(to->second->fork.lock));
                 }
                 // (D2) An eating, nonthirsty philosopher starts thinking
                 if (drinking_states[id] != DrinkingState::THIRSTY) {
@@ -412,7 +432,7 @@ void *philosopher(void *pid) {
 
 // (R1) Requesting a fork f:
 void send_reqf(long from, long to) {
-    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
@@ -420,15 +440,15 @@ void send_reqf(long from, long to) {
         return;
     }
     // (R3) Receiving a request token for f:
-    pthread_mutex_lock(&(it->second.fork.lock));
-    it->second.fork.reqf = true;
-    pthread_cond_signal(&(it->second.fork.condition));
-    pthread_mutex_unlock(&(it->second.fork.lock));
+    it->second->fork.lock.lock();
+    it->second->fork.reqf = true;
+    it->second->fork.condition.notify_one();
+    it->second->fork.lock.unlock();
 }
 
 // (R2) Releasing a fork f:
 void send_fork(long from, long to) {
-    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
@@ -436,21 +456,24 @@ void send_fork(long from, long to) {
         return;
     }
     // (R4) Receiving a fork f:
-    pthread_mutex_lock(&(it->second.fork.lock));
-    it->second.fork.dirty = false;
-    it->second.fork.hold = true;
-    pthread_cond_signal(&(it->second.fork.condition));
-    pthread_mutex_unlock(&(it->second.fork.lock));
+    it->second->fork.lock.lock();
+    it->second->fork.dirty = false;
+    it->second->fork.hold = true;
+    it->second->fork.condition.notify_one();
+    it->second->fork.lock.unlock();
 
     print_lock.lock();
-    auto _to = std::find_if(graph[from].begin(), graph[from].end(), [to](std::pair<int, Resource> pair) -> bool {return to == pair.first;});
-    auto _back = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> pair) -> bool {return from == pair.first;});
+    auto _to = std::find_if(graph[from].begin(), graph[from].end(), [to](std::pair<int, Resource*> pair) -> bool {return to == pair.first;});
+    auto _back = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> pair) -> bool {return from == pair.first;});
+    std::cout<<from<<" sent fork to "<<to<<" "<<
+             _to->second->fork.hold<<_to->second->fork.dirty<<_to->second->fork.reqf<<"---"<<
+             _back->second->fork.hold<<_back->second->fork.dirty<<_back->second->fork.reqf<<std::endl;
     print_lock.unlock();
 }
 
 // (R1) Requesting a Bottle:
 void send_reqb(long from, long to) {
-    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
@@ -458,16 +481,15 @@ void send_reqb(long from, long to) {
         return;
     }
     // (R3) Receive Request for a Bottle:
-    Resource resource_reverse = (*it).second;
-    pthread_mutex_lock(&resource_reverse.fork.lock);
-    resource_reverse.bottle.reqb = true;
-    pthread_cond_signal(&resource_reverse.fork.condition);
-    pthread_mutex_unlock(&resource_reverse.fork.lock);
+    it->second->bottle.lock.lock();
+    it->second->bottle.reqb = true;
+    it->second->bottle.condition.notify_one();
+    it->second->bottle.lock.unlock();
 }
 
 // (R2) Send a Bottle:
 void send_bottle(long from, long to) {
-    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource> ref_pair) -> bool {
+    auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
@@ -475,10 +497,12 @@ void send_bottle(long from, long to) {
         return;
     }
     // (R4) Receive a Bottle:
-    Resource resource_reverse = (*it).second;
-    pthread_mutex_lock(&resource_reverse.bottle.lock);
-    resource_reverse.bottle.hold = true;
-    pthread_mutex_unlock(&resource_reverse.bottle.lock);
+    Resource* resource_reverse = (*it).second;
+//    pthread_mutex_lock(&resource_reverse->bottle.lock);
+    it->second->bottle.lock.lock();
+    resource_reverse->bottle.hold = true;
+    it->second->bottle.lock.unlock();
+//    pthread_mutex_unlock(&resource_reverse->bottle.lock);
 }
 
 void tranquil(long id) {
