@@ -39,7 +39,7 @@ struct Bottle {
     std::condition_variable condition{};
     volatile bool hold;
     volatile bool reqb;
-    // volatile bool need{}; // ignore for simplicity
+    // volatile bool need{}; // ignored for simplicity
 };
 
 struct Resource {
@@ -57,12 +57,6 @@ void tranquil(long id);
 
 void drinking(long id);
 
-void report(long id);
-
-void report_dining(long id);
-
-void report_drinking(long id);
-
 void send_reqf(long from, long to);
 
 void send_fork(long from, long to);
@@ -76,8 +70,8 @@ void send_bottle(long from, long to);
  * function with a randomly chosen argument. I suggest values in the range of 1–1,000 microseconds. If you make the
  * sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
  */
-constexpr long TRANQUIL_MIN = 10, TRANQUIL_MAX = 10000; // in ms
-constexpr long DRINKING_MIN = 10, DRINKING_MAX = 10000; // in ms
+constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000; // in ms
+constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; // in ms
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
 constexpr long DRINKING_RANGE = DRINKING_MAX - DRINKING_MIN;
 
@@ -242,10 +236,9 @@ void *philosopher(void *pid) {
     while (!start.load());
     long id = (long) pid;
     for (int session = 0; session < session_cnt;) {
-//        report(id);
         std::vector<std::pair<int, Resource*>> refs = graph[id];
 
-        /*switch (drinking_states[id]) {
+        switch (drinking_states[id]) {
             case DrinkingState::TRANQUIL:
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     Resource *resource = ref_pair.second;
@@ -288,31 +281,40 @@ void *philosopher(void *pid) {
 
             case DrinkingState::DRINKING:
                 drinking(id);
+                print_lock.lock();
+                std::cout << "philosopher " << id + 1 << " drinking" << std::endl;
+                print_lock.unlock();
                 drinking_states[id] = DrinkingState::TRANQUIL;
                 session++;
+                if (session == session_cnt) {
+                    dining_states[id] = DiningState::THINKING;
+                }
                 break;
-        }*/
-        report_drinking(id);
+        }
 
         switch (dining_states[id]) {
             case DiningState::THINKING:
-                tranquil(id);
+                print_lock.lock();
                 std::cout << "philosopher " << id + 1 << " thinking" << std::endl;
+                print_lock.unlock();
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
                     to->second->fork.lock.lock();
-                    if (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf) {
+                    if (session == session_cnt || (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf)) {
                         send_fork(id, ref_pair.first);
                         to->second->fork.hold = false;
                         to->second->fork.dirty = false;
                     }
                     to->second->fork.lock.unlock();
                 }
+                if (session == session_cnt) {
+                    break;
+                }
 
                 // (D1) A thinking, thirsty philosopher becomes hungry
-//                if (drinking_states[id] == DrinkingState::THIRSTY) {
+                if (drinking_states[id] == DrinkingState::THIRSTY) {
                     dining_states[id] = DiningState::HUNGRY;
-//                }
+                }
                 break;
 
             case DiningState::HUNGRY:
@@ -350,29 +352,16 @@ void *philosopher(void *pid) {
                 break;
 
             case DiningState::EATING:
-                session++;
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
                     to->second->fork.dirty = true; // already ate
-                    if (session == session_cnt) {
-                        send_fork(id, to->first);
-                    }
                 }
-                print_lock.lock();
-                std::cout << "philosopher " << id + 1 << " drinking" << std::endl;
-                if (session == session_cnt) {
-                    std::cout << "philosopher " << id + 1 << " thinking" << std::endl;
-                    break;
-                }
-                print_lock.unlock();
                 // (D2) An eating, nonthirsty philosopher starts thinking
-//                if (drinking_states[id] != DrinkingState::THIRSTY) {
-                    drinking(id);
+                if (drinking_states[id] != DrinkingState::THIRSTY) {
                     dining_states[id] = DiningState::THINKING;
-//                }
+                }
                 break;
         }
-        report_dining(id);
     }
     return nullptr;
 }
@@ -387,10 +376,8 @@ void send_reqf(long from, long to) {
         return;
     }
     // (R3) Receiving a request token for f:
-//    it->second->fork.lock.lock();
     it->second->fork.reqf = true;
     it->second->fork.reqf_cond.notify_one();
-//    it->second->fork.lock.unlock();
 }
 
 // (R2) Releasing a fork f:
@@ -403,11 +390,9 @@ void send_fork(long from, long to) {
         return;
     }
     // (R4) Receiving a fork f:
-//    it->second->fork.lock.lock();
     it->second->fork.dirty = false;
     it->second->fork.hold = true;
     it->second->fork.fork_cond.notify_one();
-//    it->second->fork.lock.unlock();
 }
 
 // (R1) Requesting a Bottle:
@@ -447,71 +432,4 @@ void tranquil(long id) {
 
 void drinking(long id) {
     usleep(static_cast<useconds_t>(DRINKING_MIN + rand_r(&rand_seeds[id]) % DRINKING_RANGE));
-}
-
-void report_drinking(long id) {
-    if (!debug && drinking_states[id] != DrinkingState::DRINKING) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(print_lock);
-    std::cout << "philosopher " << id + 1 << " ";
-    switch (drinking_states[id]) {
-        case DrinkingState::TRANQUIL:
-            std::cout << "tranquil" << std::endl;
-            break;
-        case DrinkingState::THIRSTY:
-            std::cout << "thirsty" << std::endl;
-            break;
-        case DrinkingState::DRINKING:
-            std::cout << "drinking" << std::endl;
-            break;
-    }
-}
-
-void report_dining(long id) {
-    if (!debug && dining_states[id] != DiningState::THINKING) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(print_lock);
-    std::cout << "philosopher " << id + 1 << " ";
-    switch (dining_states[id]) {
-        case DiningState::THINKING:
-            std::cout << "thinking" << std::endl;
-            break;
-        case DiningState::HUNGRY:
-            std::cout << "hungry" << std::endl;
-            break;
-        case DiningState::EATING:
-            std::cout << "eating" << std::endl;
-            break;
-    }
-}
-
-void report(long id) {
-    if (!debug) return;
-
-    std::lock_guard<std::mutex> lock(print_lock);
-    std::cout << "philosopher " << id + 1 << " is ";
-    switch (drinking_states[id]) {
-        case DrinkingState::TRANQUIL:
-            std::cout << "tranquil (";
-            break;
-        case DrinkingState::THIRSTY:
-            std::cout << "thirsty  (";
-            break;
-        case DrinkingState::DRINKING:
-            std::cout << "drinking (";
-            break;
-    }
-    switch (dining_states[id]) {
-        case DiningState::THINKING:
-            std::cout << "thinking)" << std::endl;
-            break;
-        case DiningState::HUNGRY:
-            std::cout << "hungry)" << std::endl;
-            break;
-        case DiningState::EATING:
-            std::cout << "eating)" << std::endl;
-            break;
-    }
 }
