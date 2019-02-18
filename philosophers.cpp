@@ -231,60 +231,61 @@ void *philosopher(void *pid) {
     while (!start.load());
     long id = (long) pid;
     for (int session = 0; session < session_cnt;) {
-        report(id);
+//        report(id);
         std::vector<std::pair<int, Resource*>> refs = graph[id];
 
-        switch (drinking_states[id]) {
-            case DrinkingState::TRANQUIL:
-                for (std::pair<int, Resource*> ref_pair : refs) {
-                    Resource *resource = ref_pair.second;
-                    resource->bottle.lock.lock();
-                    if (resource->bottle.hold && resource->bottle.reqb && !resource->fork.hold) {
-                        send_bottle(id, ref_pair.first);
-                        resource->bottle.hold = false;
-                    }
-                    resource->bottle.lock.unlock();
-                }
-                tranquil(id);
-                drinking_states[id] = DrinkingState::THIRSTY;
-                break;
-
-            case DrinkingState::THIRSTY:
-                // For simplicity and for ease of grading, each drinking session should employ
-                // all adjacent bottles (not the arbitrary subset allowed by Chandy and Misra).
-                for (std::pair<int, Resource*> ref_pair : refs) {
-                    Resource *resource = ref_pair.second;
-                    resource->bottle.lock.lock();
-                    if (resource->bottle.hold && resource->bottle.reqb && !resource->fork.hold) {
-                        send_bottle(id, ref_pair.first);
-                        resource->bottle.hold = false;
-                    }
-                    if (!resource->bottle.hold) {
-                        while (!resource->bottle.reqb) {
-                            // waiting for bottle-ticket
-                            std::unique_lock<std::mutex> lk(resource->bottle.lock);
-                            resource->bottle.condition.wait(lk);
-                        }
-                        // single request sent
-                        send_reqb(id, ref_pair.first);
-                        resource->bottle.reqb = false;
-                    }
-                    resource->bottle.lock.unlock();
-                }
-                // all bottles received
-                drinking_states[id] = DrinkingState::DRINKING;
-                break;
-
-            case DrinkingState::DRINKING:
-                drinking(id);
-                drinking_states[id] = DrinkingState::TRANQUIL;
-                session++;
-                break;
-        }
-        report_drinking(id);
+//        switch (drinking_states[id]) {
+//            case DrinkingState::TRANQUIL:
+//                for (std::pair<int, Resource*> ref_pair : refs) {
+//                    Resource *resource = ref_pair.second;
+//                    resource->bottle.lock.lock();
+//                    if (resource->bottle.hold && resource->bottle.reqb && !resource->fork.hold) {
+//                        send_bottle(id, ref_pair.first);
+//                        resource->bottle.hold = false;
+//                    }
+//                    resource->bottle.lock.unlock();
+//                }
+//                tranquil(id);
+//                drinking_states[id] = DrinkingState::THIRSTY;
+//                break;
+//
+//            case DrinkingState::THIRSTY:
+//                // For simplicity and for ease of grading, each drinking session should employ
+//                // all adjacent bottles (not the arbitrary subset allowed by Chandy and Misra).
+//                for (std::pair<int, Resource*> ref_pair : refs) {
+//                    Resource *resource = ref_pair.second;
+//                    resource->bottle.lock.lock();
+//                    if (resource->bottle.hold && resource->bottle.reqb && !resource->fork.hold) {
+//                        send_bottle(id, ref_pair.first);
+//                        resource->bottle.hold = false;
+//                    }
+//                    if (!resource->bottle.hold) {
+//                        while (!resource->bottle.reqb) {
+//                            // waiting for bottle-ticket
+//                            std::unique_lock<std::mutex> lk(resource->bottle.lock);
+//                            resource->bottle.condition.wait(lk);
+//                        }
+//                        // single request sent
+//                        send_reqb(id, ref_pair.first);
+//                        resource->bottle.reqb = false;
+//                    }
+//                    resource->bottle.lock.unlock();
+//                }
+//                // all bottles received
+//                drinking_states[id] = DrinkingState::DRINKING;
+//                break;
+//
+//            case DrinkingState::DRINKING:
+//                drinking(id);
+//                drinking_states[id] = DrinkingState::TRANQUIL;
+//                session++;
+//                break;
+//        }
+//        report_drinking(id);
 
         switch (dining_states[id]) {
             case DiningState::THINKING:
+                drinking(id);
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
                     to->second->fork.lock.lock();
@@ -297,9 +298,9 @@ void *philosopher(void *pid) {
                 }
 
                 // (D1) A thinking, thirsty philosopher becomes hungry
-                if (drinking_states[id] == DrinkingState::THIRSTY) {
+//                if (drinking_states[id] == DrinkingState::THIRSTY) {
                     dining_states[id] = DiningState::HUNGRY;
-                }
+//                }
                 break;
 
             case DiningState::HUNGRY:
@@ -337,7 +338,7 @@ void *philosopher(void *pid) {
                 break;
 
             case DiningState::EATING:
-//                session++;
+                session++;
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
                     to->second->fork.dirty = true; // already ate
@@ -345,17 +346,17 @@ void *philosopher(void *pid) {
                         send_fork(id, to->first);
                     }
                 }
-//                print_lock.lock();
-//                std::cout << id << " eating..."<<session<< std::endl;
-//                print_lock.unlock();
-//                if (session == session_cnt) {
-//                    std::cout << id << " thinking..."<<session<< std::endl;
-//                }
-                // (D2) An eating, nonthirsty philosopher starts thinking
-                if (drinking_states[id] != DrinkingState::THIRSTY) {
-//                    drinking(id);
-                    dining_states[id] = DiningState::THINKING;
+                print_lock.lock();
+                std::cout << "philosopher " << id + 1 << " drinking" << std::endl;
+                print_lock.unlock();
+                if (session == session_cnt) {
+                    std::cout << "philosopher " << id + 1 << " thinking" << std::endl;
                 }
+                // (D2) An eating, nonthirsty philosopher starts thinking
+//                if (drinking_states[id] != DrinkingState::THIRSTY) {
+                    drinking(id);
+                    dining_states[id] = DiningState::THINKING;
+//                }
                 break;
         }
         report_dining(id);
