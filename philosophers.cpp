@@ -237,14 +237,12 @@ void *philosopher(void *pid) {
             case DrinkingState::TRANQUIL:
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     Resource *resource = ref_pair.second;
-//                    pthread_mutex_lock(&resource->bottle.lock);
                     resource->bottle.lock.lock();
                     if (resource->bottle.hold && resource->bottle.reqb && !resource->fork.hold) {
                         send_bottle(id, ref_pair.first);
                         resource->bottle.hold = false;
                     }
                     resource->bottle.lock.unlock();
-//                    pthread_mutex_unlock(&resource->bottle.lock);
                 }
                 tranquil(id);
                 drinking_states[id] = DrinkingState::THIRSTY;
@@ -255,7 +253,6 @@ void *philosopher(void *pid) {
                 // all adjacent bottles (not the arbitrary subset allowed by Chandy and Misra).
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     Resource *resource = ref_pair.second;
-//                    pthread_mutex_lock(&resource->bottle.lock);
                     resource->bottle.lock.lock();
                     if (resource->bottle.hold && resource->bottle.reqb && !resource->fork.hold) {
                         send_bottle(id, ref_pair.first);
@@ -264,7 +261,6 @@ void *philosopher(void *pid) {
                     if (!resource->bottle.hold) {
                         while (!resource->bottle.reqb) {
                             // waiting for bottle-ticket
-//                            pthread_cond_wait(&resource->bottle.condition, &resource->bottle.lock);
                             std::unique_lock<std::mutex> lk(resource->bottle.lock);
                             resource->bottle.condition.wait(lk);
                         }
@@ -273,7 +269,6 @@ void *philosopher(void *pid) {
                         resource->bottle.reqb = false;
                     }
                     resource->bottle.lock.unlock();
-//                    pthread_mutex_unlock(&resource->bottle.lock);
                 }
                 // all bottles received
                 drinking_states[id] = DrinkingState::DRINKING;
@@ -294,7 +289,6 @@ void *philosopher(void *pid) {
                 print_lock.unlock();
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
-//                    pthread_mutex_lock(&to->second->fork.lock);
                     to->second->fork.lock.lock();
                     if (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf) {
                         send_fork(id, ref_pair.first);
@@ -310,7 +304,6 @@ void *philosopher(void *pid) {
 
                     }
                     to->second->fork.lock.unlock();
-//                    pthread_mutex_unlock(&to->second->fork.lock);
                 }
 
                 // (D1) A thinking, thirsty philosopher becomes hungry
@@ -325,7 +318,6 @@ void *philosopher(void *pid) {
                 print_lock.unlock();
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
-//                    pthread_mutex_lock(&(to->second->fork.lock));
                     to->second->fork.lock.lock();
                     // fork exists, yield precedence if it is dirty
                     if (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf) {
@@ -344,7 +336,6 @@ void *philosopher(void *pid) {
                     if (!to->second->fork.hold) {
                         while (!to->second->fork.reqf) {
                             // waiting for fork-ticket
-//                            pthread_cond_wait(&(to->second->fork.condition), &(to->second->fork.lock));
                             std::unique_lock<std::mutex> lk(to->second->fork.lock);
                             to->second->fork.condition.wait(lk);
 
@@ -367,12 +358,10 @@ void *philosopher(void *pid) {
                         print_lock.unlock();
                     }
                     to->second->fork.lock.unlock();
-//                    pthread_mutex_unlock(&(to->second->fork.lock));
                 }
 
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
-//                    pthread_mutex_lock(&(to->second->fork.lock));
                     to->second->fork.lock.lock();
                     if (!to->second->fork.hold && !to->second->fork.reqf) {
 
@@ -396,7 +385,6 @@ void *philosopher(void *pid) {
                         print_lock.unlock();
                     }
                     to->second->fork.lock.unlock();
-//                    pthread_mutex_unlock(&to->second->fork.lock);
                 }
 
                 print_lock.lock();
@@ -413,11 +401,9 @@ void *philosopher(void *pid) {
                 print_lock.unlock();
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
-//                    pthread_mutex_lock(&(to->second->fork.lock));
                     to->second->fork.lock.lock();
                     to->second->fork.dirty = true; // already ate
                     to->second->fork.lock.unlock();
-//                    pthread_mutex_unlock(&(to->second->fork.lock));
                 }
                 // (D2) An eating, nonthirsty philosopher starts thinking
                 if (drinking_states[id] != DrinkingState::THIRSTY) {
@@ -497,12 +483,9 @@ void send_bottle(long from, long to) {
         return;
     }
     // (R4) Receive a Bottle:
-    Resource* resource_reverse = (*it).second;
-//    pthread_mutex_lock(&resource_reverse->bottle.lock);
     it->second->bottle.lock.lock();
-    resource_reverse->bottle.hold = true;
+    it->second->bottle.hold = true;
     it->second->bottle.lock.unlock();
-//    pthread_mutex_unlock(&resource_reverse->bottle.lock);
 }
 
 void tranquil(long id) {
