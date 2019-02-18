@@ -72,8 +72,8 @@ void send_bottle(long from, long to);
  * function with a randomly chosen argument. I suggest values in the range of 1–1,000 microseconds. If you make the
  * sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
  */
-constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000; // in ms
-constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; // in ms
+constexpr long TRANQUIL_MIN = 10, TRANQUIL_MAX = 10000; // in ms
+constexpr long DRINKING_MIN = 10, DRINKING_MAX = 10000; // in ms
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
 constexpr long DRINKING_RANGE = DRINKING_MAX - DRINKING_MIN;
 
@@ -90,18 +90,21 @@ std::mutex print_lock;
 
 int main(int argc, char **argv) {
     graph = init_graph(parse_opts(argc, argv));
-    std::cout << "press any key to continue." << std::endl;
-    getchar();
+    if (debug) {
+        std::cout << "press any key to continue." << std::endl;
+        getchar();
 
-    std::cout << "graph initialization:" << std::endl;
-    for (int i = 0; i < graph.size(); i++) {
-        std::cout << i << ": ";
-        for (const auto &adjacent : graph[i]) {
-            std::cout << adjacent.first << " (" << adjacent.second << ") ";
+        std::cout << "graph initialization:" << std::endl;
+        for (int i = 0; i < graph.size(); i++) {
+            std::cout << i << ": ";
+            for (const auto &adjacent : graph[i]) {
+                std::cout << adjacent.first << " (" << adjacent.second << ") ";
+            }
+            std::cout << std::endl;
         }
-        std::cout << std::endl;
+        printf("config: %d philosophers will drink %d times.\n\n", p_cnt, session_cnt);
     }
-    printf("config: %d philosophers will drink %d times.\n\n", p_cnt, session_cnt);
+
     dining_states.resize(static_cast<unsigned long>(p_cnt), DiningState::THINKING);
     drinking_states.resize(static_cast<unsigned long>(p_cnt), DrinkingState::TRANQUIL);
 
@@ -147,14 +150,18 @@ int parse_opts(int argc, char **argv) {
                 break;
         }
     }
-    std::cout << "sessions count:         " << (session_cnt = session_cnt < 1 ? 20 : session_cnt) << std::endl;
+    if (debug) {
+        std::cout << "sessions count:         " << (session_cnt = session_cnt < 1 ? 20 : session_cnt) << std::endl;
+    }
     for (; optind < argc; optind++) {
         if (!strcmp(argv[optind], "-")) {
             return 2;
         }
     }
     if (conf_path.length()) {
-        std::cout << "configuration path:     " << conf_path << std::endl;
+        if (debug) {
+            std::cout << "configuration path:     " << conf_path << std::endl;
+        }
         return 1;
     }
     return 0;
@@ -234,7 +241,7 @@ void *philosopher(void *pid) {
 //        report(id);
         std::vector<std::pair<int, Resource*>> refs = graph[id];
 
-        switch (drinking_states[id]) {
+        /*switch (drinking_states[id]) {
             case DrinkingState::TRANQUIL:
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     Resource *resource = ref_pair.second;
@@ -280,12 +287,13 @@ void *philosopher(void *pid) {
                 drinking_states[id] = DrinkingState::TRANQUIL;
                 session++;
                 break;
-        }
+        }*/
         report_drinking(id);
 
         switch (dining_states[id]) {
             case DiningState::THINKING:
-                drinking(id);
+                tranquil(id);
+                std::cout << "philosopher " << id + 1 << " thinking" << std::endl;
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
                     to->second->fork.lock.lock();
